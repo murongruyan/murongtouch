@@ -357,19 +357,52 @@ download_premium() {
     case "$DL_TOKEN" in ''|*[!A-Za-z0-9._~+/=-]*) err_json "下载令牌无效"; return 1 ;; esac
     case "$OUT_ZIP" in /data/local/tmp/*|/sdcard/*) ;; *) err_json "下载路径不受支持"; return 1 ;; esac
     [ -n "$CURL_BIN" ] || { err_json "缺少 curl"; return 1; }
+    TOKEN_VALUE=$(json_str "$ACCOUNT_FILE" token)
+    [ -n "$TOKEN_VALUE" ] || { err_json "请先登录账号"; return 1; }
     if [ -z "$DL_URL" ]; then
-        DL_URL="$BASE_API/v1/touch/packages/$PKG_ID/download?token=$DL_TOKEN"
+        DL_URL="$BASE_API/v1/touch/packages/$PKG_ID/download"
     fi
     case "$DL_URL" in https://*) ;; *) err_json "下载地址不受信任"; return 1 ;; esac
     mkdir -p "$(dirname "$OUT_ZIP")" 2>/dev/null || true
-    "$CURL_BIN" --silent --show-error --location --connect-timeout 10 --max-time 300 --proto '=https' \
-        -H "Authorization: Bearer $(json_str "$ACCOUNT_FILE" token)" \
-        -o "$OUT_ZIP" "$DL_URL" 2>/dev/null
-    [ "$?" -eq 0 ] && [ -f "$OUT_ZIP" ] && [ "$(wc -c < "$OUT_ZIP" 2>/dev/null | tr -d ' \n')" -gt 100 ] || {
-        rm -f "$OUT_ZIP"; err_json "付费组件下载失败"; return 1; }
+    HEADER_FILE=$(mktemp 2>/dev/null) || { err_json "无法创建临时文件"; return 1; }
+    BODY="{\"download_token\":\"$DL_TOKEN\"}"
+    HTTP_CODE=$("$CURL_BIN" --silent --show-error --location --connect-timeout 10 --max-time 300 --proto '=https' \
+        --request POST -H "Authorization: Bearer $TOKEN_VALUE" \
+        -H 'Content-Type: application/json' -H 'Accept: application/zip, application/json' \
+        --data-binary "$BODY" -D "$HEADER_FILE" -o "$OUT_ZIP" -w '%{http_code}' "$DL_URL" 2>/dev/null)
+    CURL_STATUS=$?
+    if [ "$CURL_STATUS" -ne 0 ] || [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+        rm -f "$OUT_ZIP" "$HEADER_FILE"
+        err_json "付费组件下载失败（HTTP ${HTTP_CODE:-错误}）"
+        return 1
+    fi
+    if [ ! -f "$OUT_ZIP" ] || [ "$(wc -c < "$OUT_ZIP" 2>/dev/null | tr -d ' \n')" -le 100 ]; then
+        rm -f "$OUT_ZIP" "$HEADER_FILE"
+        err_json "付费组件下载失败（响应为空）"
+        return 1
+    fi
+    if ! head -c 2 "$OUT_ZIP" | grep -q 'PK'; then
+        rm -f "$OUT_ZIP" "$HEADER_FILE"
+        err_json "付费组件下载失败（服务端未返回 zip）"
+        return 1
+    fi
     SIZE=$(wc -c < "$OUT_ZIP" 2>/dev/null | tr -d ' \n')
     SHA=$(sha256_file "$OUT_ZIP")
-    printf '{"success":true,"path":"%s","size":%s,"sha256":"%s"}\n' "$(json_escape "$OUT_ZIP")" "${SIZE:-0}" "$(json_escape "$SHA")"
+    HEADER_SHA=$(grep -i '^[[:space:]]*X-Content-SHA256:' "$HEADER_FILE" 2>/dev/null | tail -n 1 | sed 's/^[^:]*:[[:space:]]*//; s/\r$//' | tr -d '[:space:]' | tr 'A-F' 'a-f')
+    CONTENT_LENGTH=$(grep -i '^[[:space:]]*Content-Length:' "$HEADER_FILE" 2>/dev/null | tail -n 1 | sed 's/^[^:]*:[[:space:]]*//; s/\r$//' | tr -d '[:space:]')
+    rm -f "$HEADER_FILE"
+    if [ -n "$HEADER_SHA" ] && [ "$HEADER_SHA" != "$SHA" ]; then
+        rm -f "$OUT_ZIP"
+        err_json "付费组件下载内容 SHA-256 校验失败"
+        return 1
+    fi
+    if [ -n "$CONTENT_LENGTH" ] && [ "$CONTENT_LENGTH" -eq "$CONTENT_LENGTH" ] 2>/dev/null && [ "$CONTENT_LENGTH" -ne "${SIZE:-0}" ]; then
+        rm -f "$OUT_ZIP"
+        err_json "付费组件下载内容大小校验失败"
+        return 1
+    fi
+    printf '{"success":true,"path":"%s","size":%s,"sha256":"%s","header_sha256":"%s"}\n' \
+        "$(json_escape "$OUT_ZIP")" "${SIZE:-0}" "$(json_escape "$SHA")" "$(json_escape "$HEADER_SHA")"
 }
 
 install_premium() {

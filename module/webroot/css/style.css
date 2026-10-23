@@ -3689,3 +3689,67 @@ body.subpage-open .app-footer {
     color: var(--accent);
     font-size: 13px;
 }
+
+/* v5.12 触显同步卡片 */
+.sync-card {
+    margin-top: 0;
+}
+
+.sync-toggle-line {
+    align-items: center;
+}
+
+.sync-switch {
+    position: relative;
+    display: inline-flex;
+    width: 44px;
+    height: 26px;
+    margin-left: auto;
+    cursor: pointer;
+}
+
+.sync-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.sync-switch-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--divider);
+    transition: background-color .18s ease;
+}
+
+.sync-switch-slider::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+    transition: transform .18s ease;
+}
+
+.sync-switch input:checked + .sync-switch-slider {
+    background: var(--accent);
+}
+
+.sync-switch input:checked + .sync-switch-slider::after {
+    transform: translateX(18px);
+}
+
+.sync-switch input:disabled + .sync-switch-slider {
+    opacity: .45;
+}
+
+.sync-hint {
+    margin-top: 4px;
+    color: var(--row-sub);
+    font-size: 12.5px;
+    line-height: 1.5;
+}

@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.11 · KernelSU WebUI
+ * 慕容触控采样率 v5.12 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,12 +10,13 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.11.0';
+var WEBUI_VERSION = '5.12.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
 var SERVICE_LOG_PATH = MOD + '/config/service.log';
 var RATE_CONF_PATH = MOD + '/config/rate.conf';
+var SYNC_CONF_PATH = MOD + '/config/触显同步.txt';
 var LICENSE_PATH = MOD + '/config/license.txt';
 var CONFIG_APPLY_DEBOUNCE = 200;
 var API_BASE = 'https://murongdiaodu.rl1.cc/api';
@@ -81,7 +82,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.11.0',
+    moduleVersion: 'v5.12.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -286,6 +287,9 @@ var CMD = {
     probe: function () { return '"' + DAEMON_BIN + '" --probe "' + MOD + '"'; },
     readConfig: function () { return 'cat "' + CONFIG_PATH + '"'; },
     writeConfig: function (b64) { return "echo '" + b64 + "' | base64 -d > \"" + CONFIG_PATH + '" && echo __WRITE_OK__'; },
+    readSyncConfig: function () { return "cat '" + SYNC_CONF_PATH + "' 2>/dev/null"; },
+    displayModuleInstalled: function () { return '[ -d /data/adb/modules/murongchaopin ] && echo __DISPLAY_INSTALLED__ || echo __DISPLAY_MISSING__'; },
+    writeSyncConfig: function (b64) { return "echo '" + b64 + "' | base64 -d > '" + SYNC_CONF_PATH + "' && echo __WRITE_OK__"; },
     writeConfigFallback: function (b64) { return "printf '%s' '" + b64 + "' | base64 -d > \"" + CONFIG_PATH + '" && echo __WRITE_OK__'; },
     reload: function () {
         return 'pid=$(cat "' + DAEMON_PID_PATH + '" 2>/dev/null); ' +
@@ -454,7 +458,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.11.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.12.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -476,6 +480,11 @@ var MOCK = {
     deviceId: 'A1B2-C3D4-E5F6-G7H8',
     measureHz: 359.8,
     manualHz: 0,
+    syncEnabled: false,
+    syncRefreshHz: 120,
+    syncTargetHz: 240,
+    syncPkg: 'com.tencent.tmgp.sgame',
+    displayModuleInstalled: true,
     apps: [
         { pkg: 'com.tencent.tmgp.sgame', label: '王者荣耀' },
         { pkg: 'com.miHoYo.Yuanshen', label: '原神' },
@@ -507,12 +516,17 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.11.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.12.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
         backend: MOCK.removed ? '' : 'hbp', backend_ok: !MOCK.removed, original_hz: MOCK.originalHz, rules: m.rules.length,
         config_path: CONFIG_PATH, daemon_log: DAEMON_LOG_PATH, licensed: !!MOCK.license.activated,
+        sync_enabled: !!MOCK.syncEnabled, refresh_hz: MOCK.syncRefreshHz,
+        sync_target_hz: MOCK.syncEnabled ? MOCK.syncTargetHz : 0,
+        sync_source: MOCK.syncEnabled ? 'display_module' : 'fallback',
+        sync_package: MOCK.syncEnabled ? MOCK.syncPkg : '',
+        display_module_installed: !!MOCK.displayModuleInstalled,
         probe: MOCK.removed
             ? { hbp: false, proc_rate: false, white_list: false, legacy_hidl: false, touchDaemon_pid: 0, detail: '模块已标记卸载' }
             : { hbp: true, proc_rate: false, white_list: false, legacy_hidl: false, touchDaemon_pid: 7255, detail: 'hbp: 已复制 touchDaemon fd，main_register code=1(360Hz)' }
@@ -538,6 +552,10 @@ function mockExec(cmd) {
     if (c.indexOf('api.sh') >= 0) return mockPaidExec(c);
     return sleep(mockDelay(c)).then(function () {
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
+        if (c.indexOf('changelog.md') >= 0) {
+            if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
+            return '# 更新日志\n\n## v5.10.1 (5101) - 2026-10-23\n\n1. feat: 检查更新先弹窗显示版本与更新内容\n2. fix(webui): 更新源改为 raw → ghproxy → jsdelivr\n3. fix(download): 付费组件改 POST 下载并校验 SHA-256';
+        }
         if (c.indexOf('update.json') >= 0) {
             if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
             if (c.indexOf('ghproxy.net') >= 0) return '__UPDATE_FAIL__';
@@ -562,7 +580,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.11.0 后端探测报告',
+            return ['touch_rate_daemon v5.12.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -595,6 +613,15 @@ function mockExec(cmd) {
             return '__WRITE_OK__';
         }
         if (c.indexOf('license.txt') >= 0 && c.indexOf('cat ') >= 0) return MOCK.licenseText;
+        if (c.indexOf('murongchaopin') >= 0) return MOCK.displayModuleInstalled ? '__DISPLAY_INSTALLED__' : '__DISPLAY_MISSING__';
+        if (c.indexOf('触显同步.txt') >= 0 && c.indexOf('base64 -d') >= 0) {
+            var syncMatch = c.match(/'([A-Za-z0-9_\-=]+)'/);
+            var syncValue = '';
+            try { syncValue = syncMatch ? b64urlDecode(syncMatch[1]) : ''; } catch (e) { syncValue = ''; }
+            MOCK.syncEnabled = String(syncValue).trim() === '1';
+            MOCK.logs.push('10-23 08:36:00 [INFO] 触显同步 -> ' + (MOCK.syncEnabled ? '开启' : '关闭'));
+            return '__WRITE_OK__';
+        }
         if (c.indexOf('base64 -d') >= 0 && c.indexOf('采样率.txt') >= 0) {
             var match = c.match(/'([A-Za-z0-9+/=]+)'/);
             if (!match) return 'Error: 无法解析 base64';
@@ -651,6 +678,11 @@ function normalizeState(raw) {
         target_hz: toNumber(s.target_hz, 0), current_hz: toNumber(s.current_hz, 0),
         backend: backend, backend_ok: toBool(s.backend_ok), original_hz: toNumber(s.original_hz, 0), rules: toNumber(s.rules, 0),
         licensed: toBool(s.licensed), probe: normalizeProbe(s.probe),
+        sync_supported: s.sync_enabled !== undefined || s.refresh_hz !== undefined || s.sync_target_hz !== undefined,
+        sync_enabled: toBool(s.sync_enabled), refresh_hz: toNumber(s.refresh_hz, 0),
+        sync_target_hz: toNumber(s.sync_target_hz, 0), sync_source: str(s.sync_source),
+        sync_package: str(s.sync_package || s.sync_pkg || s.sync_app),
+        display_module_installed: toBool(s.display_module_installed),
         degraded: !!s.degraded, unavailable: !!s.unavailable
     };
 }
@@ -772,7 +804,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.11：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.12：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1291,9 +1323,70 @@ function renderHeader() {
     }
 }
 
+function syncSourceLabel(source) {
+    var value = String(source || '');
+    if (value === 'display_module') return '慕容显示增强（已联动）';
+    if (value === 'dump_info' || value === 'dumpsys') return '节点检测';
+    if (value === 'fallback') return '回退采样率规则';
+    return value || '—';
+}
+
+function renderSyncCard(s) {
+    var toggle = $('sync-toggle');
+    var supported = !!(s && s.sync_supported);
+    if (toggle) {
+        toggle.disabled = !supported;
+        toggle.checked = supported ? !!s.sync_enabled : false;
+    }
+    if (!supported) {
+        setText('sync-refresh', '—');
+        setText('sync-target', '—');
+        setText('sync-source', '—');
+        setText('sync-hint', '需更新付费组件后可用');
+        return;
+    }
+    var sourceLabel = syncSourceLabel(s.sync_source);
+    setText('sync-refresh', s.refresh_hz > 0 ? (s.refresh_hz + ' Hz') : '—');
+    setText('sync-target', s.sync_target_hz > 0 ? (s.sync_target_hz + ' Hz') : '—');
+    setText('sync-source', sourceLabel);
+    if (s.sync_enabled) {
+        var flow = '当前刷新率 ' + (s.refresh_hz || '—') + ' Hz（来源：' + sourceLabel + '）→ 目标采样率 ' + (s.sync_target_hz || '—') + ' Hz';
+        if (s.sync_package) flow += ' · 命中 ' + s.sync_package;
+        setText('sync-hint', flow);
+    } else if (s.display_module_installed) {
+        setText('sync-hint', '开启后跟随显示模块刷新率自动切换');
+    } else {
+        setText('sync-hint', '已关闭：按「采样率」页规则执行。');
+    }
+}
+
+async function toggleTouchSync(enabled) {
+    var toggle = $('sync-toggle');
+    if (!APP.state || !APP.state.sync_supported) {
+        toast('需更新付费组件后可用', 'warn', 3000);
+        renderSyncCard(APP.state);
+        return;
+    }
+    if (toggle) toggle.disabled = true;
+    try {
+        await runCommand(CMD.writeSyncConfig(b64urlEncode(enabled ? '1' : '0')), { timeout: 15000 });
+        await runCommand(CMD.reload(), { timeout: 20000 });
+        toast(enabled ? '触显同步已开启' : '触显同步已关闭', 'ok');
+        await sleep(500);
+        await refreshStatus();
+    } catch (e) {
+        toast('设置失败：' + (e && e.message ? e.message : e), 'err', 3200);
+        renderSyncCard(APP.state);
+    } finally {
+        var current = $('sync-toggle');
+        if (current && APP.state) current.disabled = !APP.state.sync_supported;
+    }
+}
+
 function renderHome() {
     var s = APP.state;
     if (!s) return;
+    renderSyncCard(s);
     setText('cur-hz', s.current_hz > 0 ? String(s.current_hz) : '--');
     var hero = $('hero-rate');
     if (hero) hero.className = 'hero-num ' + (!s.current_hz ? 'tier-unknown' : (s.current_hz >= 360 ? 'tier-high' : (s.current_hz >= 240 ? 'tier-mid' : 'tier-low')));
@@ -1355,6 +1448,10 @@ async function refreshStatus(options) {
             var fallback = await runCommand(CMD.deviceInfo(), { timeout: 20000 });
             APP.state = fallbackState(fallback);
         }
+        try {
+            var displayOut = await runCommand(CMD.displayModuleInstalled(), { timeout: 8000 });
+            if (hasSentinel(displayOut, '__DISPLAY_INSTALLED__')) APP.state.display_module_installed = true;
+        } catch (eDisplay) { /* 忽略检测失败 */ }
         APP.lastStatusAt = Date.now();
         renderHome();
         renderAuthBadge();
@@ -1945,7 +2042,11 @@ function paidDevicePayload() {
         device_id_hash: d.device_id_hash || '',
         device_model: d.device_model || '',
         soc_model: d.soc_model || '',
-        build_fingerprint: d.build_fingerprint || ''
+        build_fingerprint: d.build_fingerprint || '',
+        base_version: String(d.base_version || ABOUT_VERSION || WEBUI_VERSION || '').replace(/^v/i, ''),
+        kernel: String(d.kernel || ''),
+        backend: 'hbp',
+        channel: 'stable'
     };
 }
 
@@ -1958,7 +2059,11 @@ function paidDeviceQuery() {
         '&device_id_hash=' + encodeURIComponent(p.device_id_hash) +
         '&device_model=' + encodeURIComponent(p.device_model) +
         '&soc_model=' + encodeURIComponent(p.soc_model) +
-        '&build_fingerprint=' + encodeURIComponent(p.build_fingerprint);
+        '&build_fingerprint=' + encodeURIComponent(p.build_fingerprint) +
+        '&base_version=' + encodeURIComponent(p.base_version) +
+        '&kernel=' + encodeURIComponent(p.kernel) +
+        '&backend=' + encodeURIComponent(p.backend) +
+        '&channel=' + encodeURIComponent(p.channel);
 }
 
 async function refreshPaidState(options) {
@@ -2010,7 +2115,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.11：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.12：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3175,7 +3280,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.11：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.12：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3275,27 +3380,35 @@ async function downloadPremiumPackage() {
         var pkgResp = await paidApi('GET', 'v1/touch/packages?' + paidDeviceQuery(), { auth: true });
         var packages = paidArray(paidData(pkgResp), 'packages');
         packages = packages.filter(function (p) { return p && p.status !== 'disabled'; });
-        if (!packages.length) throw new Error('服务端暂无可下载付费组件');
+        if (!packages.length) throw new Error('当前版本/内核不满足组件兼容要求（列表为空）');
         packages.sort(function (a, b) { return Number(b.version_code || 0) - Number(a.version_code || 0); });
         var pkg = packages[0];
-        var shaExpected = String(pkg.sha256 || pkg.file_sha256 || '').toLowerCase();
+        var shaExpected = String(pkg.file_sha256 || pkg.sha256 || '').toLowerCase();
         log(25, '最新版本 ' + (pkg.version || '—') + ' · ' + formatPaidBytes(pkg.file_size || 0));
         var tokenResp = await paidApi('POST', 'v1/touch/packages/' + encodeURIComponent(String(pkg.id)) + '/download-token', {
             auth: true, nonce: true, json: paidDevicePayload()
         });
         var tokenData = paidData(tokenResp);
         var downloadToken = String(tokenData.download_token || tokenData.token || '');
-        if (!downloadToken) throw new Error('未获取到下载令牌');
+        if (!downloadToken) throw new Error('下载令牌获取失败（可能兼容检查未通过，HTTP 403）');
         log(40, '已获取下载令牌，开始下载…');
         var downloadUrl = String(tokenData.download_url || '');
         var dl = await paidRunJson(CMD.paidDownloadPremium(String(pkg.id), downloadToken, PAID_DOWNLOAD_ZIP, downloadUrl), '下载付费组件');
         log(70, '已下载 ' + formatPaidBytes(dl.size || 0) + '，校验哈希…');
-        var actualSha = String(dl.sha256 || '').toLowerCase();
-        if (shaExpected && actualSha && actualSha !== shaExpected) throw new Error('下载文件 SHA-256 校验失败');
+        var expectedSize = Number(pkg.file_size || 0);
+        if (expectedSize > 0 && Number(dl.size || 0) !== expectedSize) {
+            throw new Error('下载文件大小校验失败（manifest ' + expectedSize + ' B，实际 ' + Number(dl.size || 0) + ' B）');
+        }
+        var actualSha = String(dl.sha256 || dl.header_sha256 || '').toLowerCase();
+        if (shaExpected && actualSha && actualSha !== shaExpected) {
+            throw new Error('下载文件 SHA-256 校验不符（manifest ' + shaExpected.slice(0, 12) + '…，实际 ' + actualSha.slice(0, 12) + '…）');
+        }
         log(80, '校验通过，安装到模块 bin/…');
         var installed = await paidRunJson(CMD.paidInstallPremium(dl.path || PAID_DOWNLOAD_ZIP), '安装付费组件');
         log(100, '安装成功' + (installed.version ? ' · ' + installed.version : '') + (installed.sha256 ? ' · ' + String(installed.sha256).slice(0, 8) : ''), 'ok');
         APP.paid.premium = { installed: 1, version: installed.version || '', sha256: installed.sha256 || '', path: installed.path || '' };
+        try { await refreshPaidState({ silent: true }); } catch (eState) { /* ignore */ }
+        try { await refreshStatus(); } catch (eStatus) { /* ignore */ }
         renderPaidPage();
         updatePaidNotice();
         showPaidOverlay('下载付费组件', '<p class="paid-success">付费组件安装成功。</p>' +
@@ -3374,7 +3487,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.11.0';
+var ABOUT_VERSION = 'v5.12.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -3560,6 +3673,62 @@ function aboutUpdateDateText(info) {
     return raw;
 }
 
+var ABOUT_CHANGELOG_SOURCES = [
+    'https://raw.githubusercontent.com/murongruyan/murongtouch/main/changelog.md',
+    'https://ghproxy.net/https://raw.githubusercontent.com/murongruyan/murongtouch/main/changelog.md',
+    'https://cdn.jsdelivr.net/gh/murongruyan/murongtouch@main/changelog.md'
+];
+
+function aboutChangelogSources() {
+    var stamp = Math.floor(Date.now() / 1000);
+    return [
+        ABOUT_CHANGELOG_SOURCES[0] + '?t=' + stamp,
+        ABOUT_CHANGELOG_SOURCES[1] + '?t=' + stamp,
+        ABOUT_CHANGELOG_SOURCES[2]
+    ];
+}
+
+function stripChangelogMarkdown(markdown, latest) {
+    var text = String(markdown || '').replace(/\r/g, '');
+    text = text.replace(/```[\s\S]*?```/g, ' ');
+    text = text.replace(/<!--[\s\S]*?-->/g, ' ');
+    text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+    text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    text = text.replace(/https?:\/\/\S+/g, '');
+    if (latest) {
+        var version = String(latest).replace(/^v/i, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var section = new RegExp('^#{1,6}\\s*v?' + version + '[^\\n]*$', 'im');
+        var match = section.exec(text);
+        if (match) {
+            var rest = text.slice(match.index);
+            var next = rest.slice(1).search(/^#{1,6}\s/m);
+            if (next > 0) rest = rest.slice(0, next + 1);
+            text = rest;
+        }
+    }
+    text = text.replace(/^#{1,6}\s*/gm, '');
+    text = text.replace(/^\s{0,3}[-*+]\s+/gm, '· ');
+    text = text.replace(/^\s{0,3}>\s?/gm, '');
+    text = text.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
+    text = text.replace(/`([^`]+)`/g, '$1');
+    text = text.replace(/^\s*\|.*\|\s*$/gm, '');
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+    return text.slice(0, 1200);
+}
+
+async function fetchAboutChangelogText(latest) {
+    var sources = aboutChangelogSources();
+    for (var i = 0; i < sources.length; i++) {
+        try {
+            var raw = String(await runCommand(CMD.updateCheck(sources[i]), { timeout: 12000 }) || '').trim();
+            if (!raw || raw.indexOf('__UPDATE_FAIL__') >= 0 || raw.indexOf('Error:') === 0 || raw.charAt(0) === '{') continue;
+            var cleaned = stripChangelogMarkdown(raw, latest);
+            if (cleaned.length > 20) return { ok: true, text: cleaned, url: sources[i] };
+        } catch (e) { /* 尝试下一个源 */ }
+    }
+    return { ok: false, text: '', url: '' };
+}
+
 async function showAboutUpdateDialog() {
     showPaidOverlay('检查更新', '<p class="paid-hint">正在检查更新…</p>', [
         { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }
@@ -3581,16 +3750,21 @@ async function showAboutUpdateDialog() {
         '<div class="paid-kv"><span>最新版本</span><b>v' + escapeHtml(latestDisplay) + '</b></div>' +
         '<div class="paid-kv"><span>状态</span><b>' + (hasNewer ? '发现新版本' : '已是最新') + '</b></div>' +
         '</div>';
+    var actions = [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }];
     if (hasNewer) {
-        var logText = aboutUpdateChangelogText(info);
-        if (logText) {
-            body += '<div class="update-changelog"><b>更新内容</b><p>' + escapeHtml(logText) + '</p></div>';
+        var changelog = await fetchAboutChangelogText(info.latest);
+        if (changelog.text) {
+            body += '<div class="update-changelog"><b>更新内容</b><p>' + escapeHtml(changelog.text) + '</p></div>';
+        } else {
+            var fullLogUrl = /^https?:\/\//.test(String(info.changelog || '')) ? String(info.changelog) : ABOUT_CHANGELOG_URL;
+            actions.push({
+                label: '查看完整更新日志', className: 'btn-secondary', onClick: function () {
+                    openAboutLink(fullLogUrl, '无法打开更新日志');
+                }
+            });
         }
         var dateText = aboutUpdateDateText(info);
         if (dateText) body += '<p class="paid-hint">发行日期：' + escapeHtml(dateText) + '</p>';
-    }
-    var actions = [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }];
-    if (hasNewer) {
         var updateUrl = aboutUpdateReleaseUrl(info);
         actions.push({
             label: '去更新', className: 'btn-primary', onClick: function () {
@@ -3640,6 +3814,7 @@ function mockPaidState() {
             packages: [{
                 id: 1, pkg: 'touch-premium', version: '1.0.0', version_code: 100,
                 sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
+                file_sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
                 file_size: 93472, status: 'active', compatible: true
             }]
         };
@@ -3712,7 +3887,7 @@ function mockPaidExec(cmd) {
         return Promise.resolve(JSON.stringify({
             success: true, device_id: 'mock-device-id', sn: 'MOCK-SN-0001', imei1: '000000000000001',
             imei2: '000000000000002', device_id_hash: 'mock-device-hash', device_model: 'RMX5200',
-            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.11', kernel: '6.1.0'
+            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.12', kernel: '6.1.0'
         }));
     }
     if (action === 'premium_state') {
@@ -4015,6 +4190,7 @@ function bindBaseControls() {
     var uninstall = $('btn-uninstall'); if (uninstall) uninstall.addEventListener('click', actionUninstall);
     var read = $('btn-read-rate'); if (read) read.addEventListener('click', readCurrentRate);
     var measure = $('btn-measure'); if (measure) measure.addEventListener('click', measureRate);
+    var syncToggle = $('sync-toggle'); if (syncToggle) syncToggle.addEventListener('change', function () { toggleTouchSync(syncToggle.checked); });
     var headerPrimary = $('btn-header-primary'); if (headerPrimary) headerPrimary.addEventListener('click', headerPrimaryAction);
     var headerSecondary = $('btn-header-secondary'); if (headerSecondary) headerSecondary.addEventListener('click', headerSecondaryAction);
 }
@@ -4249,6 +4425,11 @@ if (typeof window !== 'undefined') {
         hzToCode: function (hz) { return HZ_TO_CODE[hz] || 0; },
         codeToHz: function (code) { return CODE_TO_HZ[code] || 0; },
         normalizeState: normalizeState,
+        renderSyncCard: renderSyncCard,
+        syncSourceLabel: syncSourceLabel,
+        toggleTouchSync: toggleTouchSync,
+        SYNC_CONF_PATH: SYNC_CONF_PATH,
+        mockState: mockState,
         fallbackState: fallbackState,
         backendLabel: backendLabel,
         cloneDefaultAppearance: cloneDefaultAppearance,
@@ -4293,6 +4474,9 @@ if (typeof window !== 'undefined') {
         maskCardNumber: maskCardNumber,
         licenseStatusLabel: licenseStatusLabel,
         aboutUpdateSources: aboutUpdateSources,
+        aboutChangelogSources: aboutChangelogSources,
+        stripChangelogMarkdown: stripChangelogMarkdown,
+        fetchAboutChangelogText: fetchAboutChangelogText,
         fetchAboutUpdate: fetchAboutUpdate,
         showAboutUpdateDialog: showAboutUpdateDialog,
         aboutUpdateReleaseUrl: aboutUpdateReleaseUrl,
