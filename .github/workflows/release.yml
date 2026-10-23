@@ -1,0 +1,288 @@
+name: Release
+
+# 「慕容触控采样率」免费模块自动发版流水线。
+#
+#   push main  → 自动 bump 补丁版本（version x.y.z → z+1，versionCode+1）
+#                → 构建 慕容触控采样率-vX.Y.Z.zip
+#                → 创建 tag vX.Y.Z + GitHub Release（自动 changelog / release notes）
+#                → 上传 zip + sha256
+#                → 同步仓库根 update.json，并把 module.prop/update.json/changelog.md 提交回 main
+#                  （GITHUB_TOKEN 推送不会再次触发工作流，提交信息也带 [skip ci]）
+#
+#   workflow_dispatch（手动触发）：
+#     * skip_bump=true（默认）  → 跳过版本号 bump，按当前 module.prop 版本构建；
+#     * publish_release=false   → 只构建并上传 Actions artifact，不创建 Release / tag（纯验证构建）。
+#
+# 本工作流只打包免费模块内容：付费守护进程源码/二进制（bin/touch_rate_daemon、*.c、*.ko…）
+# 在打包前会被显式断言拒绝，避免误发。
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skip_bump:
+        description: '跳过版本号 bump（按当前 module.prop 的 version 构建）'
+        required: true
+        type: boolean
+        default: true
+      publish_release:
+        description: '创建/更新 tag 与 GitHub Release（关闭则只构建并上传 Actions artifact）'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MODULE_DIR: module
+  ZIP_PREFIX: 慕容触控采样率
+
+jobs:
+  release:
+    name: Build & release free module
+    runs-on: ubuntu-latest
+    # 自动发版提交（[skip ci]）不再触发；GITHUB_TOKEN 推送本来也不会触发。
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate module tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '== shell 语法检查 =='
+          while IFS= read -r -d '' f; do
+            sh -n "$f"
+            echo "  ok $f"
+          done < <(find "$MODULE_DIR" -type f -name '*.sh' -print0)
+          bash -n tools/package.sh
+          echo '  ok tools/package.sh'
+          echo '== python 工具语法检查 =='
+          python3 -m py_compile tools/update_metadata.py tools/release_notes.py
+          echo '== 必需文件 =='
+          required=(
+            module.prop service.sh action.sh uninstall.sh common.sh README.md
+            bin/api.sh bin/rate_ctl bin/curl bin/verify_lease_sig
+            config/采样率.txt config/rate.conf config/legacy.conf
+            config/set_rate.sh config/restore_rate.sh
+            config/auth/lease_public_key.hex config/auth/lease_key_id.txt
+            webroot/index.html webroot/css/style.css webroot/js/app.js
+          )
+          for f in "${required[@]}"; do
+            [ -e "$MODULE_DIR/$f" ] || { echo "缺少必需文件: $MODULE_DIR/$f" >&2; exit 1; }
+          done
+          echo '== 付费组件泄漏断言 =='
+          leak="$(find "$MODULE_DIR" \
+            \( -name '*.c' -o -name '*.h' -o -name '*.ko' -o -name '*.so' \
+               -o -name 'touch_rate_daemon' -o -name 'daemon.c' \) \
+            -print -quit)"
+          [ -z "$leak" ] || { echo "公开仓出现付费组件: $leak" >&2; exit 1; }
+          echo 'module tree 校验通过'
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SKIP_BUMP: ${{ github.event.inputs.skip_bump }}
+          PUBLISH_RELEASE: ${{ github.event.inputs.publish_release }}
+        run: |
+          set -euo pipefail
+          current_version="$(sed -n 's/^version=//p' "$MODULE_DIR/module.prop" | head -n1 | tr -d '\r')"
+          current_code="$(sed -n 's/^versionCode=//p' "$MODULE_DIR/module.prop" | head -n1 | tr -d '\r')"
+          [ -n "$current_version" ] && [ -n "$current_code" ] || { echo 'module.prop 缺少 version/versionCode' >&2; exit 1; }
+
+          bump=false
+          publish=true
+          if [ "$EVENT_NAME" = 'push' ]; then
+            bump=true
+          elif [ "${PUBLISH_RELEASE:-true}" = 'false' ]; then
+            publish=false
+          elif [ "${SKIP_BUMP:-true}" = 'false' ]; then
+            bump=true
+          fi
+
+          if [ "$bump" = 'true' ]; then
+            version="$(python3 - "$current_version" <<'PY'
+          import re, sys
+          v = sys.argv[1].strip()
+          m = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', v)
+          if m:
+              print(f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}")
+          else:
+              m = re.fullmatch(r'(\d+)\.(\d+)', v)
+              if not m:
+                  sys.exit(f'无法识别 module.prop 版本号: {v}')
+              print(f"{m.group(1)}.{m.group(2)}.1")
+          PY
+          )"
+            version_code=$((current_code + 1))
+          else
+            version="$current_version"
+            version_code="$current_code"
+          fi
+
+          zip_name="${ZIP_PREFIX}-v${version}.zip"
+          {
+            echo "current_version=$current_version"
+            echo "current_code=$current_code"
+            echo "version=$version"
+            echo "version_code=$version_code"
+            echo "bump=$bump"
+            echo "publish=$publish"
+            echo "zip_name=$zip_name"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "版本: v$current_version → v$version（versionCode $current_code → $version_code, bump=$bump, publish=$publish）"
+
+      - name: Sync module.prop & update.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/update_metadata.py \
+            --module-dir "$MODULE_DIR" \
+            --version "${{ steps.meta.outputs.version }}" \
+            --version-code "${{ steps.meta.outputs.version_code }}" \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --zip-name "${{ steps.meta.outputs.zip_name }}"
+          echo '--- module.prop ---'
+          cat "$MODULE_DIR/module.prop"
+          echo '--- update.json ---'
+          cat update.json
+
+      - name: Build free module zip
+        id: package
+        shell: bash
+        run: bash tools/package.sh "$MODULE_DIR" "${{ steps.meta.outputs.version }}" dist
+
+      - name: Generate changelog & release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+          echo "上一个 tag: ${previous_tag:-（无）}"
+          extra=()
+          if [ "${{ steps.meta.outputs.bump }}" = 'true' ]; then
+            extra+=(--changelog changelog.md)
+          fi
+          python3 tools/release_notes.py \
+            --repo "${{ github.repository }}" \
+            --version "${{ steps.meta.outputs.version }}" \
+            --version-code "${{ steps.meta.outputs.version_code }}" \
+            --zip-name "${{ steps.meta.outputs.zip_name }}" \
+            --sha256 "${{ steps.package.outputs.sha256 }}" \
+            --size "${{ steps.package.outputs.size }}" \
+            --previous-tag "$previous_tag" \
+            --body release-notes.md \
+            "${extra[@]}"
+          echo '--- release-notes.md ---'
+          cat release-notes.md
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version metadata
+        id: commit
+        if: steps.meta.outputs.bump == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE_DIR/module.prop" update.json changelog.md
+          if git diff --cached --quiet; then
+            echo '没有需要提交的版本改动'
+          else
+            git commit -m "chore(release): v${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.version_code }}) [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release
+        id: release
+        if: steps.meta.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          BUMP: ${{ steps.meta.outputs.bump }}
+          RELEASE_TARGET: ${{ steps.commit.outputs.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          title="慕容触控采样率 v$VERSION"
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            if [ "$BUMP" = 'true' ]; then
+              gh release edit "$TAG" --repo "$REPOSITORY" --title "$title" --notes-file release-notes.md
+            fi
+            gh release upload "$TAG" --repo "$REPOSITORY" "$ZIP_PATH" "$ZIP_PATH.sha256" --clobber
+            echo "已更新既有 Release: $TAG"
+          else
+            gh release create "$TAG" \
+              --repo "$REPOSITORY" \
+              --target "$RELEASE_TARGET" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              "$ZIP_PATH" "$ZIP_PATH.sha256"
+            echo "已创建 Release: $TAG"
+          fi
+          release_url="$(gh release view "$TAG" --repo "$REPOSITORY" --json url --jq .url)"
+          {
+            echo "release_url=$release_url"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release URL: $release_url"
+          gh release view "$TAG" --repo "$REPOSITORY" --json assets \
+            --jq '.assets[] | "  asset: \(.name)  size=\(.size)  sha256=\(.digest // "n/a")"'
+
+      - name: Upload build artifact (build-only mode)
+        if: steps.meta.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: murongtouch-v${{ steps.meta.outputs.version }}
+          path: |
+            dist/${{ steps.meta.outputs.zip_name }}
+            dist/${{ steps.meta.outputs.zip_name }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          BUMP: ${{ steps.meta.outputs.bump }}
+          PUBLISH: ${{ steps.meta.outputs.publish }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+          SIZE: ${{ steps.package.outputs.size }}
+          RELEASE_URL: ${{ steps.release.outputs.release_url }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## 慕容触控采样率 v${VERSION:-?}（versionCode ${VERSION_CODE:-?}）"
+            echo ''
+            echo "- 触发方式：\`$EVENT_NAME\`，bump=\`${BUMP:-?}\`，publish=\`${PUBLISH:-?}\`"
+            echo "- 安装包：\`${ZIP_NAME:-?}\`（${SIZE:-?} bytes）"
+            echo "- SHA256：\`${SHA256:-?}\`"
+            if [ -n "${RELEASE_URL:-}" ]; then
+              echo "- Release：$RELEASE_URL"
+            fi
+            echo ''
+            echo '> 自动发版：push main 时补丁版本 +1 并发布；手动触发可跳过 bump 或只构建。'
+          } >> "$GITHUB_STEP_SUMMARY"

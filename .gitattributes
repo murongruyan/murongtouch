@@ -1,0 +1,21 @@
+# 模块在设备上由 sh / Android 运行时解析，Windows 检出时绝不能被改成 CRLF。
+* text=auto eol=lf
+
+*.sh     text eol=lf
+*.prop   text eol=lf
+*.txt    text eol=lf
+*.conf   text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.js     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.py     text eol=lf
+
+# 无扩展名的可执行文件（ELF）按二进制处理，避免换行转换破坏。
+module/bin/curl            binary
+module/bin/rate_ctl        binary
+module/bin/verify_lease_sig binary
+tools/*.sh                 text eol=lf
