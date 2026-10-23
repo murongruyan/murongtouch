@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.17 · KernelSU WebUI
+ * 慕容触控采样率 v5.18 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.17.0';
+var WEBUI_VERSION = '5.18.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -85,7 +85,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.17.0',
+    moduleVersion: 'v5.18.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -344,8 +344,10 @@ var CMD = {
     },
     paidInstallPremium: function (zipPath) { return 'sh "' + API_SCRIPT + '" install_premium "' + zipPath + '"'; },
     collectDiag: function () {
-        return 'MOD="' + MOD + '"; D="' + DIAG_DIR + '"; TS=$(date +%Y%m%d_%H%M%S); NAME="gt8pro_touch_diag_$TS"; TMP="/data/local/tmp/$NAME"; ' +
-            'mkdir -p "$TMP"; ' +
+        var MOD_PATH = MOD;
+        var script = 'sh "' + MOD_PATH + '/bin/collect_diag.sh"';
+        var fallback = 'MOD="' + MOD_PATH + '"; D="' + DIAG_DIR + '"; TS=$(date +%Y%m%d_%H%M%S); NAME="gt8pro_touch_diag_$TS"; TMP="/data/local/tmp/$NAME"; ' +
+            'mkdir -p "$TMP" 2>/dev/null; ' +
             'tail -n 200 "$MOD/config/daemon.log" > "$TMP/daemon.log" 2>/dev/null; ' +
             'tail -n 200 "$MOD/config/service.log" > "$TMP/service.log" 2>/dev/null; ' +
             '"' + DAEMON_BIN + '" --json "$MOD" > "$TMP/status.json" 2>/dev/null; ' +
@@ -357,10 +359,11 @@ var CMD = {
             'uname -a >> "$TMP/device.txt" 2>/dev/null; ' +
             'cat "$MOD/module.prop" >> "$TMP/device.txt" 2>/dev/null; ' +
             'cp "$MOD/config/采样率.txt" "$TMP/采样率.txt" 2>/dev/null; cp "' + RATE_CONF_PATH + '" "$TMP/rate.conf" 2>/dev/null; ' +
-            'BB=/data/adb/ksu/bin/busybox; [ -x "$BB" ] || BB=$(command -v busybox 2>/dev/null); ' +
-            'if [ -n "$BB" ] && [ -x "$BB" ]; then (cd "$TMP" && "$BB" zip -r "$D/$NAME.zip" . >/dev/null 2>&1); ZIP="$D/$NAME.zip"; ' +
-            'else (cd "$TMP" && tar -czf "$D/$NAME.tar.gz" . >/dev/null 2>&1); ZIP="$D/$NAME.tar.gz"; fi; ' +
-            'rm -rf "$TMP"; [ -f "$ZIP" ] && echo "__DIAG_OK__:$ZIP" || echo "__DIAG_FAIL__"';
+            'BB=/data/adb/ksu/bin/busybox; [ -x "$BB" ] || BB=$(command -v busybox 2>/dev/null); ZIP=""; ' +
+            'if [ -n "$BB" ] && [ -x "$BB" ]; then (cd "$TMP" && "$BB" zip -r "$D/$NAME.zip" . >/dev/null 2>&1); [ -s "$D/$NAME.zip" ] && ZIP="$D/$NAME.zip"; fi; ' +
+            'if [ -z "$ZIP" ]; then (cd "$TMP" && tar -czf "$D/$NAME.tar.gz" . >/dev/null 2>&1); [ -s "$D/$NAME.tar.gz" ] && ZIP="$D/$NAME.tar.gz"; fi; ' +
+            'rm -rf "$TMP"; if [ -n "$ZIP" ]; then SIZE=$(wc -c < "$ZIP" 2>/dev/null | tr -d " \n"); echo "__DIAG_OK__:$ZIP size=$SIZE"; else echo "__DIAG_FAIL__:archive_failed"; fi';
+        return 'if [ -f "' + MOD_PATH + '/bin/collect_diag.sh" ]; then ' + script + '; else ' + fallback + '; fi';
     },
     shareDiag: function (path) {
         return 'am start -a android.intent.action.SEND -t application/zip --eu android.intent.extra.STREAM "file://' + path + '" >/dev/null 2>&1 && echo __SHARE_OK__ || echo __SHARE_FAIL__';
@@ -461,7 +464,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.17.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.18.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -519,7 +522,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.17.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.18.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -578,14 +581,14 @@ function mockExec(cmd) {
         if (c.indexOf('android.intent.action.SEND') >= 0) return '__SHARE_OK__';
         if (c.indexOf('android.intent.action.VIEW') >= 0) return '__OPEN_OK__';
         /* 诊断收集命令里也包含 --json/--probe，必须最先匹配 */
-        if (c.indexOf('gt8pro_touch_diag_') >= 0) return '__DIAG_OK__:/sdcard/Download/gt8pro_touch_diag_20261023_090000.zip';
+        if (c.indexOf('gt8pro_touch_diag_') >= 0) return '__DIAG_OK__:/sdcard/Download/murong_touch_diag_20261023_232844.tar.gz size=13403';
         /* 降级设备信息（daemon 不支持 --json 时；内部含 rate_ctl get，需先匹配） */
         if (c.indexOf('getprop ro.product.vendor.model') >= 0) {
             return ['MODEL=RMX5200', 'PLATFORM=arm64-v8a', 'SDK=37', 'ROM=V17.0.0', 'PID=' + (MOCK.removed ? '' : MOCK.pid), 'CURRENT=DC 0xE6 = 1'].join('\n');
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.17.0 后端探测报告',
+            return ['touch_rate_daemon v5.18.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -811,7 +814,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.17：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.18：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -2139,24 +2142,42 @@ async function applyConfigNow() {
 /* ============================================================
  * 13. 日志页：一键收集诊断 + 分享 + 清空 + 原始日志（开发者）
  * ============================================================ */
+function diagFailReason(reason) {
+    var value = String(reason || '').trim();
+    if (!value || value === 'archive_failed') return '打包失败（zip/tar 均不可用）';
+    if (/dir|write|unwritable|permission|denied/i.test(value)) return '输出目录不可写';
+    if (/script|missing|not_found/i.test(value)) return '诊断脚本缺失';
+    if (/tmp/i.test(value)) return '临时目录不可写';
+    return value;
+}
+
 async function collectDiag() {
     var btn = $('btn-collect-diag');
     await withBusy(btn, '收集打包中…（约数十秒）', async function () {
-        var out = await runCommand(CMD.collectDiag(), { timeout: 180000 });
-        var match = String(out).match(/__DIAG_OK__:(\S+)/);
-        if (match) {
-            APP.diagPath = match[1];
-            var result = $('diag-result');
+        var out = String(await runCommand(CMD.collectDiag(), { timeout: 180000 }) || '');
+        var okMatch = out.match(/__DIAG_OK__:(\S+)(?:\s+size=(\d+))?/);
+        var failMatch = out.match(/__DIAG_FAIL__:([^\r\n]*)/);
+        var result = $('diag-result');
+        if (okMatch) {
+            APP.diagPath = okMatch[1];
+            var size = Number(okMatch[2] || 0);
             if (result) result.hidden = false;
             setText('diag-path', APP.diagPath);
-            setText('diag-hint', '已生成：' + APP.diagPath);
+            setText('diag-hint', '已生成：' + APP.diagPath + (size > 0 ? ' · ' + formatPaidBytes(size) : ''));
             toast('诊断包已生成', 'ok');
-            var share = await confirmDialog({ title: '诊断包已生成', message: '路径：\n' + APP.diagPath + '\n\n是否立即分享给开发者？', confirmText: '分享', cancelText: '关闭' });
+            var share = await confirmDialog({
+                title: '诊断包已生成',
+                message: '路径：\n' + APP.diagPath + (size > 0 ? '\n大小：' + formatPaidBytes(size) : '') + '\n\n是否立即分享给开发者？',
+                confirmText: '分享', cancelText: '关闭'
+            });
             if (share) await shareDiag(APP.diagPath);
-        } else {
-            toast('诊断包生成失败，请确认 /sdcard/Download 可写', 'err', 4000);
-            setText('diag-hint', '生成失败：' + stripSentinels(out).slice(0, 200));
+            return;
         }
+        var reason = failMatch ? diagFailReason(failMatch[1]) : '未识别到诊断脚本输出';
+        if (result) result.hidden = true;
+        setText('diag-path', '—');
+        setText('diag-hint', '生成失败：' + reason + '。可手动运行：su -c "sh /data/adb/modules/gt8pro_touch/bin/collect_diag.sh"');
+        toast('诊断包生成失败：' + reason, 'err', 4600);
     });
 }
 
@@ -2360,7 +2381,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.17：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.18：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3525,7 +3546,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.17：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.18：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3732,7 +3753,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.17.0';
+var ABOUT_VERSION = 'v5.18.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {

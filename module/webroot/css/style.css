@@ -3693,7 +3693,7 @@ body.subpage-open .app-footer {
     font-size: 13px;
 }
 
-/* v5.17 触显同步卡片 */
+/* v5.18 触显同步卡片 */
 .sync-card {
     margin-top: 0;
 }
@@ -3779,3 +3779,6 @@ body.subpage-open .app-footer {
     font-weight: 600;
     vertical-align: middle;
 }
+
+/* v5.18：诊断脚本说明 */
+#diag-hint { word-break: break-all; }
