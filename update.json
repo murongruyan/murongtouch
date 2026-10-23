@@ -1,6 +1,6 @@
 {
-  "version": "5.0.0",
-  "versionCode": 500,
-  "zipUrl": "https://github.com/murongruyan/murongtouch/releases/download/v5.0.0/%E6%85%95%E5%AE%B9%E8%A7%A6%E6%8E%A7%E9%87%87%E6%A0%B7%E7%8E%87-v5.0.0.zip",
+  "version": "5.0.1",
+  "versionCode": 501,
+  "zipUrl": "https://github.com/murongruyan/murongtouch/releases/download/v5.0.1/%E6%85%95%E5%AE%B9%E8%A7%A6%E6%8E%A7%E9%87%87%E6%A0%B7%E7%8E%87-v5.0.1.zip",
   "changelog": "https://raw.githubusercontent.com/murongruyan/murongtouch/main/changelog.md"
 }
