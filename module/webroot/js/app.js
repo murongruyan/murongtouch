@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.10 · KernelSU WebUI
+ * 慕容触控采样率 v5.11 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.10.0';
+var WEBUI_VERSION = '5.11.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -81,7 +81,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.10.0',
+    moduleVersion: 'v5.11.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -454,7 +454,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.10.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.11.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -507,7 +507,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.10.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.11.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -540,7 +540,8 @@ function mockExec(cmd) {
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
         if (c.indexOf('update.json') >= 0) {
             if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
-            return JSON.stringify({ version: '5.9.1', tag_name: 'v5.9.1', html_url: 'https://github.com/murongruyan/murongtouch/releases/tag/v5.9.1', changelog: '触控采样率 v5.9.1\n· 优化授权同步与租约展示\n· 修复检查更新网络问题', date: '2026-10-23' });
+            if (c.indexOf('ghproxy.net') >= 0) return '__UPDATE_FAIL__';
+            return JSON.stringify({ version: '5.10.1', tag_name: 'v5.10.1', html_url: 'https://github.com/murongruyan/murongtouch/releases/tag/v5.10.1', changelog: '触控采样率 v5.10.1\n· 更新检查改为先弹窗\n· 修复源缓存导致版本滞后', date: '2026-10-23' });
         }
         if (c.indexOf('pm list users') >= 0) return 'Users:\n\tUserInfo{0:机主:13} running\n\tUserInfo{999:MultiApp:13} running\n';
         if (c.indexOf('pm list packages --user') >= 0 && c.indexOf('com.tencent.mm') >= 0) {
@@ -561,7 +562,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.10.0 后端探测报告',
+            return ['touch_rate_daemon v5.11.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -585,7 +586,7 @@ function mockExec(cmd) {
         if (c.indexOf('--measure-rate') >= 0) return JSON.stringify({ ok: true, hz: MOCK.measureHz, events: 1083, seconds: 3.01, backend: 'hbp' });
         if (c.indexOf('nonLocalizedLabel') >= 0) return MOCK.apps.map(function (app) { return app.pkg + '|' + app.label; }).join('\n');
         if (c.indexOf('pm list packages') >= 0) return MOCK.apps.map(function (app) { return app.pkg; }).join('\n');
-        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.9.1\nversionCode=591\nauthor=murong';
+        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.10.0\nversionCode=600\nauthor=murong';
         if (c.indexOf('android.intent.action.SEND') >= 0) return '__SHARE_OK__';
         if (c.indexOf('android.intent.action.VIEW') >= 0) return '__OPEN_OK__';
         if (c.indexOf('license.txt') >= 0 && c.indexOf('base64 -d') >= 0) {
@@ -771,7 +772,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.10：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.11：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -2009,7 +2010,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.10：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.11：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3174,7 +3175,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.10：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.11：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3356,15 +3357,24 @@ var ABOUT_TRAFFIC_URL = 'https://h5.lot-ml.com/ProductEn/Index/beb66e222fcdb4b6'
 var ABOUT_DONATE_URL = 'https://qr.alipay.com/fkx19856muvtznqt6onipea';
 var ABOUT_UPDATE_JSON_URL = 'https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json';
 var ABOUT_UPDATE_SOURCES = [
-    'https://cdn.jsdelivr.net/gh/murongruyan/murongtouch@main/update.json',
     'https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json',
-    'https://ghproxy.net/https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json'
+    'https://ghproxy.net/https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json',
+    'https://cdn.jsdelivr.net/gh/murongruyan/murongtouch@main/update.json'
 ];
+
+function aboutUpdateSources() {
+    var stamp = Math.floor(Date.now() / 1000);
+    return [
+        ABOUT_UPDATE_SOURCES[0] + '?t=' + stamp,
+        ABOUT_UPDATE_SOURCES[1] + '?t=' + stamp,
+        ABOUT_UPDATE_SOURCES[2]
+    ];
+}
 var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.10.0';
+var ABOUT_VERSION = 'v5.11.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -3397,11 +3407,10 @@ function openAboutLink(url, failMessage, fallbackUrl) {
 function openAboutPage() {
     var page = $('about-page');
     if (!page) return;
-    loadAboutInfo();
+    loadAboutInfo().then(function () { refreshAboutUpdateSubtitle(); });
     page.hidden = false;
     page.scrollTop = 0;
     if (document.body) document.body.classList.add('subpage-open');
-    refreshAboutUpdateSubtitle();
 }
 
 function closeAboutPage() {
@@ -3447,23 +3456,27 @@ function aboutReleaseUrl(info) {
     return ABOUT_RELEASES_URL + '/tag/' + encodeURIComponent(tag);
 }
 
-function readAboutUpdateCache() {
+function readAboutUpdateCache(currentVersion) {
     try {
         var raw = localStorage.getItem(ABOUT_UPDATE_CACHE_KEY);
         if (!raw) return null;
         var data = JSON.parse(raw);
         if (!data || !data.ts || !data.latest) return null;
         if (Date.now() - Number(data.ts) > ABOUT_UPDATE_CACHE_TTL) return null;
+        var expected = String(currentVersion || ABOUT_VERSION || WEBUI_VERSION || '');
+        if (data.currentVersion && expected && String(data.currentVersion) !== expected) return null;
         return data;
     } catch (e) { return null; }
 }
 
 function writeAboutUpdateCache(info) {
+    info = info || {};
     try {
         localStorage.setItem(ABOUT_UPDATE_CACHE_KEY, JSON.stringify({
             ts: Date.now(),
-            latest: String((info && info.latest) || ''),
-            tag_name: String((info && info.tag_name) || '')
+            latest: String(info.latest || ''),
+            tag_name: String(info.tag_name || ''),
+            currentVersion: String(info.currentVersion || ABOUT_VERSION || WEBUI_VERSION || '')
         }));
     } catch (e) { /* ignore */ }
 }
@@ -3482,7 +3495,7 @@ function applyAboutUpdateText(current, latest, stale) {
 
 async function fetchAboutUpdate(force) {
     var current = ABOUT_VERSION || WEBUI_VERSION;
-    var cached = readAboutUpdateCache();
+    var cached = readAboutUpdateCache(current);
     if (cached && !force) {
         applyAboutUpdateText(current, cached.latest, false);
         return {
@@ -3497,9 +3510,10 @@ async function fetchAboutUpdate(force) {
     var htmlUrl = '';
     var changelog = '';
     var dateText = '';
-    for (var i = 0; i < ABOUT_UPDATE_SOURCES.length; i++) {
+    var sources = aboutUpdateSources();
+    for (var i = 0; i < sources.length; i++) {
         try {
-            var raw = String(await runCommand(CMD.updateCheck(ABOUT_UPDATE_SOURCES[i]), { timeout: 12000 }) || '').trim();
+            var raw = String(await runCommand(CMD.updateCheck(sources[i]), { timeout: 12000 }) || '').trim();
             if (!raw || raw.indexOf('__UPDATE_FAIL__') >= 0 || raw.indexOf('Error:') === 0) continue;
             var data = JSON.parse(raw);
             latest = String(data.version || data.latest_version || data.latestVersion || data.tag_name || data.tag || '').replace(/^v/i, '');
@@ -3514,7 +3528,7 @@ async function fetchAboutUpdate(force) {
         applyAboutUpdateText(current, '', true);
         return { ok: false, current: current };
     }
-    writeAboutUpdateCache({ latest: latest, tag_name: tagName });
+    writeAboutUpdateCache({ latest: latest, tag_name: tagName, currentVersion: current });
     applyAboutUpdateText(current, latest, false);
     return {
         ok: true, latest: latest, tag_name: tagName, html_url: htmlUrl,
@@ -3560,10 +3574,11 @@ async function showAboutUpdateDialog() {
         return;
     }
     var current = info.current || ABOUT_VERSION;
-    var hasNewer = !!info.hasNewer;
+    var hasNewer = compareVersionStrings(String(info.latest || ''), current) > 0;
+    var latestDisplay = hasNewer ? info.latest : (compareVersionStrings(String(info.latest || ''), current) === 0 ? info.latest : current);
     var body = '<div class="update-info">' +
         '<div class="paid-kv"><span>当前版本</span><b>v' + escapeHtml(current) + '</b></div>' +
-        '<div class="paid-kv"><span>最新版本</span><b>v' + escapeHtml(info.latest) + '</b></div>' +
+        '<div class="paid-kv"><span>最新版本</span><b>v' + escapeHtml(latestDisplay) + '</b></div>' +
         '<div class="paid-kv"><span>状态</span><b>' + (hasNewer ? '发现新版本' : '已是最新') + '</b></div>' +
         '</div>';
     if (hasNewer) {
@@ -3697,7 +3712,7 @@ function mockPaidExec(cmd) {
         return Promise.resolve(JSON.stringify({
             success: true, device_id: 'mock-device-id', sn: 'MOCK-SN-0001', imei1: '000000000000001',
             imei2: '000000000000002', device_id_hash: 'mock-device-hash', device_model: 'RMX5200',
-            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.10', kernel: '6.1.0'
+            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.11', kernel: '6.1.0'
         }));
     }
     if (action === 'premium_state') {
@@ -4277,6 +4292,7 @@ if (typeof window !== 'undefined') {
         formatLeaseExpiry: formatLeaseExpiry,
         maskCardNumber: maskCardNumber,
         licenseStatusLabel: licenseStatusLabel,
+        aboutUpdateSources: aboutUpdateSources,
         fetchAboutUpdate: fetchAboutUpdate,
         showAboutUpdateDialog: showAboutUpdateDialog,
         aboutUpdateReleaseUrl: aboutUpdateReleaseUrl,
