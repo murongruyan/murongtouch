@@ -3657,4 +3657,35 @@ body.subpage-open .app-footer {
     text-align: center;
 }
 
-/* v5.9：检查更新多源/缓存（无样式变更） */
+/* v5.10：检查更新弹窗 */
+
+/* v5.10：检查更新弹窗 */
+.update-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0 8px;
+}
+
+.update-info .paid-kv:last-child b {
+    color: var(--accent);
+}
+
+.update-changelog {
+    margin-top: 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--row-sub);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.update-changelog b {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--accent);
+    font-size: 13px;
+}

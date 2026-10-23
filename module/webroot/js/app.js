@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.9 · KernelSU WebUI
+ * 慕容触控采样率 v5.10 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.9.0';
+var WEBUI_VERSION = '5.10.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -81,7 +81,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.9.0',
+    moduleVersion: 'v5.10.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -187,7 +187,7 @@ function parseConfigText(text) {
 
 function buildConfigText(global, rules) {
     var lines = [
-        '# 慕容触控采样率 v5.9 config/采样率.txt',
+        '# 慕容触控采样率 v5.10 config/采样率.txt',
         '# 第一行：全局采样率（0 = 不强制，恢复系统原值）；可选 120/180/240/288/360/400',
         '# 其余行：包名 采样率(Hz)；高级写法 c1~c15 表示后端 code（c16 及以上禁止）',
         String(global),
@@ -442,7 +442,7 @@ function parseJsonLoose(text) {
  * 6. Mock 模式
  * ============================================================ */
 var MOCK_INITIAL_CONFIG = [
-    '# 慕容触控采样率 v5.9 采样率配置（浏览器预览 Mock）',
+    '# 慕容触控采样率 v5.10 采样率配置（浏览器预览 Mock）',
     '# 第一行：全局采样率，0 = 不强制',
     '0',
     '# 包名 采样率(Hz)',
@@ -454,7 +454,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.9.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.10.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -507,7 +507,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.9.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.10.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -540,7 +540,7 @@ function mockExec(cmd) {
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
         if (c.indexOf('update.json') >= 0) {
             if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
-            return JSON.stringify({ version: '5.9.0', tag_name: 'v5.9.0', html_url: 'https://github.com/murongruyan/murongtouch/releases/tag/v5.9.0' });
+            return JSON.stringify({ version: '5.9.1', tag_name: 'v5.9.1', html_url: 'https://github.com/murongruyan/murongtouch/releases/tag/v5.9.1', changelog: '触控采样率 v5.9.1\n· 优化授权同步与租约展示\n· 修复检查更新网络问题', date: '2026-10-23' });
         }
         if (c.indexOf('pm list users') >= 0) return 'Users:\n\tUserInfo{0:机主:13} running\n\tUserInfo{999:MultiApp:13} running\n';
         if (c.indexOf('pm list packages --user') >= 0 && c.indexOf('com.tencent.mm') >= 0) {
@@ -561,7 +561,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.9.0 后端探测报告',
+            return ['touch_rate_daemon v5.10.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -585,7 +585,7 @@ function mockExec(cmd) {
         if (c.indexOf('--measure-rate') >= 0) return JSON.stringify({ ok: true, hz: MOCK.measureHz, events: 1083, seconds: 3.01, backend: 'hbp' });
         if (c.indexOf('nonLocalizedLabel') >= 0) return MOCK.apps.map(function (app) { return app.pkg + '|' + app.label; }).join('\n');
         if (c.indexOf('pm list packages') >= 0) return MOCK.apps.map(function (app) { return app.pkg; }).join('\n');
-        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.9.0\nversionCode=540\nauthor=murong';
+        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.9.1\nversionCode=591\nauthor=murong';
         if (c.indexOf('android.intent.action.SEND') >= 0) return '__SHARE_OK__';
         if (c.indexOf('android.intent.action.VIEW') >= 0) return '__OPEN_OK__';
         if (c.indexOf('license.txt') >= 0 && c.indexOf('base64 -d') >= 0) {
@@ -771,7 +771,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.9：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.10：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1330,7 +1330,7 @@ function renderHome() {
     if (alert) {
         if (s.degraded) alert.hidden = false;
         else alert.hidden = true;
-        if (s.degraded) alert.textContent = '当前 daemon 不支持 --json 接口（可能未升级到 v5.9），已降级读取基础状态。';
+        if (s.degraded) alert.textContent = '当前 daemon 不支持 --json 接口（可能未升级到 v5.10），已降级读取基础状态。';
     }
     setText('last-update', '更新于 ' + timeLine());
     renderHeader();
@@ -2009,7 +2009,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.9：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.10：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3174,7 +3174,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.9：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.10：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3364,7 +3364,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.9.0';
+var ABOUT_VERSION = 'v5.10.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -3401,7 +3401,7 @@ function openAboutPage() {
     page.hidden = false;
     page.scrollTop = 0;
     if (document.body) document.body.classList.add('subpage-open');
-    checkAboutUpdate(false);
+    refreshAboutUpdateSubtitle();
 }
 
 function closeAboutPage() {
@@ -3480,19 +3480,23 @@ function applyAboutUpdateText(current, latest, stale) {
     setText('about-update-text', text);
 }
 
-async function checkAboutUpdate(openReleases, options) {
-    options = options || {};
+async function fetchAboutUpdate(force) {
     var current = ABOUT_VERSION || WEBUI_VERSION;
     var cached = readAboutUpdateCache();
-    if (cached && !options.force) {
+    if (cached && !force) {
         applyAboutUpdateText(current, cached.latest, false);
-        if (openReleases) openAboutLink(aboutReleaseUrl(cached), '无法打开更新发布页');
-        return { ok: true, latest: cached.latest, cached: true };
+        return {
+            ok: true, latest: cached.latest, tag_name: cached.tag_name || '',
+            current: current, cached: true,
+            hasNewer: compareVersionStrings(cached.latest, current) > 0
+        };
     }
     setText('about-update-text', '当前 ' + current + ' · 正在检查更新…');
     var latest = '';
     var tagName = '';
     var htmlUrl = '';
+    var changelog = '';
+    var dateText = '';
     for (var i = 0; i < ABOUT_UPDATE_SOURCES.length; i++) {
         try {
             var raw = String(await runCommand(CMD.updateCheck(ABOUT_UPDATE_SOURCES[i]), { timeout: 12000 }) || '').trim();
@@ -3501,24 +3505,85 @@ async function checkAboutUpdate(openReleases, options) {
             latest = String(data.version || data.latest_version || data.latestVersion || data.tag_name || data.tag || '').replace(/^v/i, '');
             tagName = String(data.tag_name || data.tag || '');
             htmlUrl = String(data.html_url || '');
+            changelog = String(data.changelog || data.notes || data.body || data.release_notes || data.description || '');
+            dateText = String(data.date || data.published_at || data.updated_at || data.release_date || '');
             if (latest) break;
         } catch (e) { /* 尝试下一个源 */ }
     }
     if (!latest) {
-        /* 全部失败：静默降级，不弹失败 toast；点击仍打开 releases 页 */
         applyAboutUpdateText(current, '', true);
-        if (openReleases) openAboutLink(ABOUT_RELEASES_URL, '无法打开更新发布页');
-        return { ok: false, latest: '' };
+        return { ok: false, current: current };
     }
     writeAboutUpdateCache({ latest: latest, tag_name: tagName });
     applyAboutUpdateText(current, latest, false);
-    var hasNewer = compareVersionStrings(latest, current) > 0;
-    if (hasNewer) toast('发现新版本 v' + latest, 'info', 3000);
-    if (openReleases) {
-        var releaseUrl = htmlUrl && htmlUrl.indexOf('/releases') >= 0 ? htmlUrl : aboutReleaseUrl({ latest: latest, tag_name: tagName });
-        openAboutLink(releaseUrl, '无法打开更新发布页');
+    return {
+        ok: true, latest: latest, tag_name: tagName, html_url: htmlUrl,
+        changelog: changelog, date: dateText, current: current,
+        hasNewer: compareVersionStrings(latest, current) > 0
+    };
+}
+
+async function refreshAboutUpdateSubtitle() {
+    try { await fetchAboutUpdate(false); } catch (e) { /* 静默 */ }
+}
+
+function aboutUpdateReleaseUrl(info) {
+    info = info || {};
+    if (info.html_url && /\/releases/.test(String(info.html_url))) return String(info.html_url);
+    return aboutReleaseUrl(info);
+}
+
+function aboutUpdateChangelogText(info) {
+    info = info || {};
+    return String(info.changelog || '').replace(/\r/g, '').trim().slice(0, 1000);
+}
+
+function aboutUpdateDateText(info) {
+    info = info || {};
+    var raw = String(info.date || '').trim();
+    if (!raw) return '';
+    if (dateTimeToMillis(raw)) return formatLeaseExpiry(raw);
+    return raw;
+}
+
+async function showAboutUpdateDialog() {
+    showPaidOverlay('检查更新', '<p class="paid-hint">正在检查更新…</p>', [
+        { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }
+    ]);
+    try { await loadAboutInfo(); } catch (e) { /* 使用内置版本 */ }
+    var info = await fetchAboutUpdate(true);
+    if (!info.ok) {
+        showPaidOverlay('检查更新', '<p class="paid-hint">检查失败，请检查网络后重试</p>', [
+            { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay },
+            { label: '重试', className: 'btn-primary', onClick: showAboutUpdateDialog }
+        ]);
+        return;
     }
-    return { ok: true, latest: latest, newer: hasNewer };
+    var current = info.current || ABOUT_VERSION;
+    var hasNewer = !!info.hasNewer;
+    var body = '<div class="update-info">' +
+        '<div class="paid-kv"><span>当前版本</span><b>v' + escapeHtml(current) + '</b></div>' +
+        '<div class="paid-kv"><span>最新版本</span><b>v' + escapeHtml(info.latest) + '</b></div>' +
+        '<div class="paid-kv"><span>状态</span><b>' + (hasNewer ? '发现新版本' : '已是最新') + '</b></div>' +
+        '</div>';
+    if (hasNewer) {
+        var logText = aboutUpdateChangelogText(info);
+        if (logText) {
+            body += '<div class="update-changelog"><b>更新内容</b><p>' + escapeHtml(logText) + '</p></div>';
+        }
+        var dateText = aboutUpdateDateText(info);
+        if (dateText) body += '<p class="paid-hint">发行日期：' + escapeHtml(dateText) + '</p>';
+    }
+    var actions = [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }];
+    if (hasNewer) {
+        var updateUrl = aboutUpdateReleaseUrl(info);
+        actions.push({
+            label: '去更新', className: 'btn-primary', onClick: function () {
+                openAboutLink(updateUrl, '无法打开更新发布页');
+            }
+        });
+    }
+    showPaidOverlay('检查更新', body, actions);
 }
 
 function bindAboutControls() {
@@ -3538,7 +3603,7 @@ function bindAboutControls() {
         else if (action === 'qq') openAboutLink(ABOUT_QQ_URL, '无法打开 QQ 群，请加入 QQ 群：' + ABOUT_QQ_NUMBER);
         else if (action === 'traffic') openAboutLink(ABOUT_TRAFFIC_URL, '无法打开流量卡页面');
         else if (action === 'donate') openAboutLink(ABOUT_DONATE_URL, '无法打开打赏页面');
-        else if (action === 'update') checkAboutUpdate(true, { force: true });
+        else if (action === 'update') showAboutUpdateDialog();
     });
 }
 
@@ -3632,7 +3697,7 @@ function mockPaidExec(cmd) {
         return Promise.resolve(JSON.stringify({
             success: true, device_id: 'mock-device-id', sn: 'MOCK-SN-0001', imei1: '000000000000001',
             imei2: '000000000000002', device_id_hash: 'mock-device-hash', device_model: 'RMX5200',
-            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.9', kernel: '6.1.0'
+            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.10', kernel: '6.1.0'
         }));
     }
     if (action === 'premium_state') {
@@ -4212,6 +4277,9 @@ if (typeof window !== 'undefined') {
         formatLeaseExpiry: formatLeaseExpiry,
         maskCardNumber: maskCardNumber,
         licenseStatusLabel: licenseStatusLabel,
+        fetchAboutUpdate: fetchAboutUpdate,
+        showAboutUpdateDialog: showAboutUpdateDialog,
+        aboutUpdateReleaseUrl: aboutUpdateReleaseUrl,
         aboutReleaseUrl: aboutReleaseUrl,
         readAboutUpdateCache: readAboutUpdateCache,
         writeAboutUpdateCache: writeAboutUpdateCache,
@@ -4219,7 +4287,7 @@ if (typeof window !== 'undefined') {
         ABOUT_UPDATE_CACHE_TTL: ABOUT_UPDATE_CACHE_TTL,
         ABOUT_UPDATE_SOURCES: ABOUT_UPDATE_SOURCES,
         compareVersionStrings: compareVersionStrings,
-        checkAboutUpdate: checkAboutUpdate,
+        fetchAboutUpdate: fetchAboutUpdate,
         normalizeSignedLease: normalizeSignedLease,
         latestLicenseMeta: latestLicenseMeta,
         refreshLicensesMeta: refreshLicensesMeta,

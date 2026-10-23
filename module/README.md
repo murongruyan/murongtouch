@@ -31,8 +31,7 @@
 
 ## 安装
 
-1. KernelSU / Magisk 管理器 → 模块 → 从本地安装 → 选择模块 zip
-   （GitHub Release 资产为 `murongtouch-vX.Y.Z.zip`；本地打包产物为 `慕容触控采样率-vX.Y.Z.zip`）；
+1. KernelSU / Magisk 管理器 → 模块 → 从本地安装 → 选择 `慕容触控采样率-v5.0.zip`；
 2. 重启手机；
 3. 打开模块 WebUI → 用户页完成登录/购买/下载付费组件；
 4. 安装组件后会自动启动守护进程（也可在用户页点「重启守护进程」）。
