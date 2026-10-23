@@ -3693,7 +3693,7 @@ body.subpage-open .app-footer {
     font-size: 13px;
 }
 
-/* v5.16 触显同步卡片 */
+/* v5.17 触显同步卡片 */
 .sync-card {
     margin-top: 0;
 }
@@ -3766,3 +3766,16 @@ body.subpage-open .app-footer {
 
 /* v5.16：配置生效提示 */
 .hint-warn { color: var(--danger); }
+
+/* v5.17：当前应用标记 */
+.app-current-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 600;
+    vertical-align: middle;
+}
