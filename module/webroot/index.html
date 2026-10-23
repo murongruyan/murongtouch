@@ -59,6 +59,7 @@
                 <div class="status-line"><span>当前刷新率</span><b id="sync-refresh">—</b></div>
                 <div class="status-line"><span>目标采样率</span><b id="sync-target">—</b></div>
                 <div class="status-line"><span>来源</span><b id="sync-source">—</b></div>
+                <div class="status-line"><span>开关状态</span><b id="sync-state">—</b></div>
                 <p id="sync-hint" class="sync-hint">检测中…</p>
                 <p class="sync-map">映射：60→120 · 90→180 · 120→240 · 144→288 · 155/165→360（按刷新率×2，取不小于的最小可用档）</p>
             </div>
@@ -158,6 +159,7 @@
             <div class="alert alert-info" id="config-notice" hidden></div>
             <div class="alert alert-warn" id="config-sync-warning" hidden><b>触显同步已开启：</b>采样率配置（全局/应用规则）暂不生效。修改配置时会提示关闭触显同步。</div>
             <div class="alert alert-info" id="config-effective">当前生效：—</div>
+            <p class="hint" id="config-sync-state">触显同步：—</p>
 
             <div class="section-label">采样率</div>
             <div class="card">

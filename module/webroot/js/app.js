@@ -619,6 +619,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('license.txt') >= 0 && c.indexOf('cat ') >= 0) return MOCK.licenseText;
         if (c.indexOf('murongchaopin') >= 0) return MOCK.displayModuleInstalled ? '__DISPLAY_INSTALLED__' : '__DISPLAY_MISSING__';
+        if (c.indexOf('触显同步.txt') >= 0 && c.indexOf('cat ') >= 0) return MOCK.syncEnabled ? '1' : '0';
         if (c.indexOf('触显同步.txt') >= 0 && c.indexOf('base64 -d') >= 0) {
             var syncMatch = c.match(/'([A-Za-z0-9_\-=]+)'/);
             var syncValue = '';
@@ -1359,6 +1360,7 @@ function renderConfigStatus(state) {
     setText('effective-source', info.label + (info.detail ? ' · ' + info.detail : ''));
     var warn = $('config-sync-warning');
     if (warn) warn.hidden = !s.sync_enabled;
+    setText('config-sync-state', s.sync_supported ? ('触显同步：' + (s.sync_enabled ? '已开启（daemon）' : '已关闭（daemon）')) : '触显同步：旧 daemon 不支持');
     var hint = $('config-global-hint');
     if (hint) {
         var ruled = !!(s.matched && Number(s.rule_rate) > 0);
@@ -1368,6 +1370,15 @@ function renderConfigStatus(state) {
                 (rateToHz(s.rule_rate) || s.rule_rate) + ' Hz，全局值只对无规则应用生效。';
         }
     }
+}
+
+async function writeSyncConfigVerified(value) {
+    var expected = String(value).trim() === '1' ? '1' : '0';
+    var writeOut = await runCommand(CMD.writeSyncConfig(b64urlEncode(expected)), { timeout: 15000 });
+    if (!hasSentinel(writeOut, '__WRITE_OK__')) throw new Error('写入命令失败');
+    var readBack = String(await runCommand(CMD.readSyncConfig(), { timeout: 10000 }) || '').trim();
+    if (readBack !== expected) throw new Error('回读不一致：' + (readBack || '(空)'));
+    return true;
 }
 
 async function guardConfigChange(changeFn) {
@@ -1385,7 +1396,7 @@ async function guardConfigChange(changeFn) {
             danger: true
         });
         if (!ok) return;
-        await runCommand(CMD.writeSyncConfig(b64urlEncode('0')), { timeout: 15000 });
+        await writeSyncConfigVerified('0');
         await runCommand(CMD.reload(), { timeout: 20000 });
         toast('已关闭触显同步，正在应用配置', 'ok');
         await changeFn();
@@ -1460,6 +1471,7 @@ function renderSyncCard(s) {
     }
     var sourceLabel = syncSourceLabel(s.sync_source);
     var sourceShort = syncSourceShortLabel(s.sync_source);
+    setText('sync-state', APP.syncSwitching ? '切换中…' : (s.sync_enabled ? '已开启（daemon）' : '已关闭（daemon）'));
     setText('sync-refresh', s.refresh_hz > 0 ? (s.refresh_hz + ' Hz') : '—');
     setText('sync-target', s.sync_target_hz > 0 ? (s.sync_target_hz + ' Hz') : '—');
     setText('sync-source', sourceLabel);
@@ -1524,15 +1536,17 @@ async function toggleTouchSync(enabled) {
         }
     };
     try {
-        await runCommand(CMD.writeSyncConfig(b64urlEncode(enabled ? '1' : '0')), { timeout: 15000 });
+        await writeSyncConfigVerified(enabled ? '1' : '0');
         await runCommand(CMD.reload(), { timeout: 20000 });
         toast(enabled ? '触显同步已开启，正在切换…' : '触显同步已关闭', 'ok');
     } catch (e) {
         APP.syncSwitching = false;
         APP.syncTimeout = false;
         finish();
-        toast('设置失败：' + (e && e.message ? e.message : e), 'err', 3200);
+        var currentToggle = $('sync-toggle');
+        if (currentToggle) currentToggle.checked = !!(APP.state && APP.state.sync_enabled);
         renderSyncCard(APP.state);
+        toast('保存失败：触显同步配置未生效（' + (e && e.message ? e.message : e) + '）', 'err', 3800);
         return;
     }
     SYNC_RECHECK_DELAYS.forEach(function (delay) {
@@ -4610,6 +4624,7 @@ if (typeof window !== 'undefined') {
         effectiveSourceInfo: effectiveSourceInfo,
         renderConfigStatus: renderConfigStatus,
         guardConfigChange: guardConfigChange,
+        writeSyncConfigVerified: writeSyncConfigVerified,
         pollConfigApplied: pollConfigApplied,
         notifyConfigApplied: notifyConfigApplied,
         syncLastWriteText: syncLastWriteText,
