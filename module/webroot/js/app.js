@@ -540,7 +540,7 @@ function mockExec(cmd) {
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
         if (c.indexOf('update.json') >= 0) {
             if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
-            return JSON.stringify({ version: '5.9.0', tag_name: 'v5.9.0', html_url: 'https://github.com/mongruyan/murongtouch/releases/tag/v5.9.0' });
+            return JSON.stringify({ version: '5.9.0', tag_name: 'v5.9.0', html_url: 'https://github.com/murongruyan/murongtouch/releases/tag/v5.9.0' });
         }
         if (c.indexOf('pm list users') >= 0) return 'Users:\n\tUserInfo{0:机主:13} running\n\tUserInfo{999:MultiApp:13} running\n';
         if (c.indexOf('pm list packages --user') >= 0 && c.indexOf('com.tencent.mm') >= 0) {
@@ -3346,7 +3346,7 @@ async function paidAutoMaintenance() {
 
 /* ---------- 关于二级页（1:1 照慕容调度 AboutMiuix） ---------- */
 var ABOUT_WEBSITE_URL = 'https://murongdiaodu.rl1.cc/';
-var ABOUT_REPO_URL = 'https://github.com/mongruyan/murongtouch';
+var ABOUT_REPO_URL = 'https://github.com/murongruyan/murongtouch';
 var ABOUT_TUTORIAL_URL = 'https://murongdiaodu.rl1.cc/docs.html';
 var ABOUT_COOLAPK_DEEPLINK = 'coolmarket://u/5037694';
 var ABOUT_COOLAPK_FALLBACK = 'https://www.coolapk.com/u/5037694';
@@ -3354,15 +3354,15 @@ var ABOUT_QQ_URL = 'mqqapi://card/show_pslcard?src_type=internal&version=1&uin=9
 var ABOUT_QQ_NUMBER = '974835379';
 var ABOUT_TRAFFIC_URL = 'https://h5.lot-ml.com/ProductEn/Index/beb66e222fcdb4b6';
 var ABOUT_DONATE_URL = 'https://qr.alipay.com/fkx19856muvtznqt6onipea';
-var ABOUT_UPDATE_JSON_URL = 'https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json';
+var ABOUT_UPDATE_JSON_URL = 'https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json';
 var ABOUT_UPDATE_SOURCES = [
-    'https://cdn.jsdelivr.net/gh/mongruyan/murongtouch@main/update.json',
-    'https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json',
-    'https://ghproxy.net/https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json'
+    'https://cdn.jsdelivr.net/gh/murongruyan/murongtouch@main/update.json',
+    'https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json',
+    'https://ghproxy.net/https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json'
 ];
 var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
-var ABOUT_RELEASES_URL = 'https://github.com/mongruyan/murongtouch/releases';
+var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
 var ABOUT_VERSION = 'v5.8.0';
 
