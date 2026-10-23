@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.0</title>
+    <title>慕容触控采样率 v5.8</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -41,7 +41,7 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.0.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.8.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
             </div>
@@ -233,8 +233,8 @@
                 <div class="paid-placeholder">正在读取授权…</div>
             </div>
 
-            <div class="section-label">购买</div>
-            <div class="card row-card">
+            <div class="section-label" id="paid-purchase-label">购买</div>
+            <div class="card row-card" id="paid-purchase-section">
                 <button type="button" id="btn-paid-buy" class="row-btn" data-paid-action="buy">
                     <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10h14v10H5z"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
                     <span class="row-main"><span class="row-title">购买授权（3 元 · 单机永久）</span><span class="row-sub">支付成功后自动发放卡密并绑定本机</span></span>
@@ -275,21 +275,20 @@
                 </button>
             </div>
 
-            <div class="section-label">其他</div>
+            <div class="section-label">关于</div>
             <div class="card row-card">
-                <button type="button" class="row-btn" data-paid-action="feedback">
-                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></span>
-                    <span class="row-main"><span class="row-title">反馈</span><span class="row-sub">酷安 @慕容雪绒（仅文字说明）</span></span>
+                <button type="button" id="btn-paid-about" class="row-btn" data-paid-action="about">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.5v5.8"/><circle cx="12" cy="7.7" r=".9" fill="currentColor" stroke="none"/></svg></span>
+                    <span class="row-main"><span class="row-title">关于</span><span class="row-sub">版本信息与交流</span></span>
                     <span class="chevron">›</span>
                 </button>
             </div>
-
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.0 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.8 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.0</span>
+        <span>慕容触控采样率 v5.8</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>
@@ -418,6 +417,89 @@
         </main>
     </div>
 
+    <!-- ==================== 关于（二级页面，1:1 照慕容调度 AboutMiuix） ==================== -->
+    <div id="about-page" class="subpage" hidden>
+        <header class="subpage-header">
+            <div class="app-header-inner header-3col">
+                <button type="button" id="btn-about-back" class="subpage-back">← 返回</button>
+                <div class="subpage-title-wrap">
+                    <h1 id="about-title" class="header-page-title">关于</h1>
+                </div>
+                <div class="header-actions"></div>
+            </div>
+        </header>
+        <main class="subpage-main">
+            <div class="about-hero">
+                <div class="about-icon" aria-hidden="true">
+                    <svg viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><rect x="12" y="18" width="48" height="36" rx="12"/><path d="M24 36h24M36 24v24"/><circle cx="36" cy="36" r="4" fill="currentColor" stroke="none"/></svg>
+                </div>
+                <h2 id="about-name" class="about-name">慕容触控采样率</h2>
+                <p id="about-version" class="about-version">版本 v5.8.0</p>
+                <p id="about-author" class="about-author">开发者：慕容茹艳（酷安慕容雪绒）</p>
+                <p class="about-dev-note">触控采样率模块：调试采样率、同步授权、下载付费组件。</p>
+            </div>
+
+            <div class="section-label">相关链接</div>
+            <div class="card row-card">
+                <button type="button" id="about-website" class="row-btn" data-about-action="website">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.5 4 5.4 4 8.5s-1.4 6-4 8.5c-2.6-2.5-4-5.4-4-8.5s1.4-6 4-8.5Z"/></svg></span>
+                    <span class="row-main"><span class="row-title">官方网站</span><span class="row-sub">murongdiaodu.rl1.cc</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="about-repo" class="row-btn" data-about-action="repo">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/></svg></span>
+                    <span class="row-main"><span class="row-title">免费模块开源仓库</span><span class="row-sub">github.com/mongruyan/murongtouch</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="about-tutorial" class="row-btn" data-about-action="tutorial">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 16v-4.5M12 8h.01"/></svg></span>
+                    <span class="row-main"><span class="row-title">使用教程</span><span class="row-sub">安装、刷入、授权与日常调校</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <div class="section-label">交流与支持</div>
+            <div class="card row-card">
+                <button type="button" id="about-coolapk" class="row-btn" data-about-action="coolapk">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="10" rx="2.5"/><path d="M8 7V5h8v2"/></svg></span>
+                    <span class="row-main"><span class="row-title">酷安</span><span class="row-sub">@慕容雪绒</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="about-qq" class="row-btn" data-about-action="qq">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8a5 5 0 0 1 10 0c0 4 2 6 2 6H5s2-2 2-6Z"/><path d="M9 19c.7-1 1.7-1.5 3-1.5s2.3.5 3 1.5"/></svg></span>
+                    <span class="row-main"><span class="row-title">QQ 群</span><span class="row-sub">974835379</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="about-traffic" class="row-btn" data-about-action="traffic">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M10 7h4M10 17h4"/></svg></span>
+                    <span class="row-main"><span class="row-title">流量卡</span><span class="row-sub">支持作者的另一种方式</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="about-donate" class="row-btn" data-about-action="donate">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.5-9-9a4.5 4.5 0 0 1 9-2 4.5 4.5 0 0 1 9 2c-2 4.5-9 9-9 9Z"/></svg></span>
+                    <span class="row-main"><span class="row-title">打赏作者</span><span class="row-sub">支付宝扫码</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <div class="section-label">版本与更新</div>
+            <div class="card row-card">
+                <button type="button" id="about-update" class="row-btn" data-about-action="update">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 5v6h-6"/></svg></span>
+                    <span class="row-main"><span class="row-title">检查应用更新</span><span class="row-sub" id="about-update-text">当前 v5.8.0 · 点击检查更新</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <p class="about-note">开发者：慕容茹艳（酷安慕容雪绒）<br>触控采样率模块 · 本地离线工具，仅在授权验证时联网；不收集、不上传个人数据。</p>
+        </main>
+    </div>
+
     <!-- 通用底部选项 sheet（背景颜色 / 主题模式） -->
     <div id="option-sheet" class="drawer" hidden>
         <div class="drawer-backdrop" data-option-close="1"></div>
@@ -433,6 +515,21 @@
         </section>
     </div>
 
+    <!-- WebUI 内支付弹层（照显示模块 payment-sheet；金额/收款码/root 拉起/轮询） -->
+    <div id="payment-overlay" class="payment-overlay" hidden>
+        <div class="payment-backdrop" data-payment-close="1"></div>
+        <section class="payment-sheet" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+            <header class="payment-sheet-head">
+                <div class="payment-sheet-copy">
+                    <span class="payment-kicker">慕容触控采样率 · 单机永久</span>
+                    <h3 id="payment-title" class="payment-title">等待支付</h3>
+                </div>
+                <button type="button" id="btn-payment-close" class="btn btn-small btn-secondary" data-payment-close="1">关闭</button>
+            </header>
+            <div id="payment-body" class="payment-body"></div>
+            <footer id="payment-actions" class="payment-actions"></footer>
+        </section>
+    </div>
     <!-- 付费流程弹层（登录/购买/卡密/订单/下载） -->
     <div id="paid-overlay" class="paid-overlay" hidden>
         <div class="paid-overlay-backdrop" data-paid-close="1"></div>

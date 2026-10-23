@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.0 · KernelSU WebUI
+ * 慕容触控采样率 v5.8 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.0.0';
+var WEBUI_VERSION = '5.8.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -25,6 +25,10 @@ var PAID_PRODUCT_CODE = 'touch_sampling';
 var PAID_REFRESH_MS = 30 * 60 * 1000;
 var PAID_LEASE_RENEW_SECONDS = 24 * 3600;
 var PAID_DOWNLOAD_ZIP = '/data/local/tmp/gt8pro_touch_premium.zip';
+var PAYMENT_ASSET_URL = API_BASE + '/payment_asset';
+var PAYMENT_ALIPAY_QRCODE = 'https://qr.alipay.com/fkx19856muvtznqt6onipea';
+var PAYMENT_WECHAT_RECEIVER = 'wxp://f2f0Uk7YdwjnrBPrQ85ytbNuR1L4y1GRJz2wzm7cNgl2onU';
+var WECHAT_USER_STORAGE_KEY = 'gt8pro_wechat_user_v1';
 var MODULE_PROP_PATH = MOD + '/module.prop';
 var DAEMON_BIN = MOD + '/bin/touch_rate_daemon';
 var RATE_CTL_BIN = MOD + '/bin/rate_ctl';
@@ -77,7 +81,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.0.0',
+    moduleVersion: 'v5.8.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -183,7 +187,7 @@ function parseConfigText(text) {
 
 function buildConfigText(global, rules) {
     var lines = [
-        '# 慕容触控采样率 v5.0 config/采样率.txt',
+        '# 慕容触控采样率 v5.8 config/采样率.txt',
         '# 第一行：全局采样率（0 = 不强制，恢复系统原值）；可选 120/180/240/288/360/400',
         '# 其余行：包名 采样率(Hz)；高级写法 c1~c15 表示后端 code（c16 及以上禁止）',
         String(global),
@@ -315,6 +319,7 @@ var CMD = {
     readLicense: function () { return 'cat "' + LICENSE_PATH + '" 2>/dev/null'; },
     writeLicense: function (b64) { return "echo '" + b64 + "' | base64 -d > \"" + LICENSE_PATH + '" && echo __WRITE_OK__'; },
     moduleProp: function () { return 'cat "' + MODULE_PROP_PATH + '" 2>/dev/null'; },
+    updateCheck: function (url) { return '"' + MOD + '/bin/curl" -fsSL --connect-timeout 4 --max-time 8 "' + String(url || '') + '" 2>/dev/null || printf "__UPDATE_FAIL__"'; },
     /* v5 付费 API 桥（module/bin/api.sh） */
     apiRequest: function (method, path, auth, payloadB64, nonce, form) {
         return 'sh "' + API_SCRIPT + '" api_request ' + method + ' "' + path + '" ' +
@@ -354,6 +359,24 @@ var CMD = {
         return 'am start -a android.intent.action.SEND -t application/zip --eu android.intent.extra.STREAM "file://' + path + '" >/dev/null 2>&1 && echo __SHARE_OK__ || echo __SHARE_FAIL__';
     },
     openUrl: function (url) { return 'am start -a android.intent.action.VIEW -d "' + url + '" >/dev/null 2>&1 && echo __OPEN_OK__ || echo __OPEN_FAIL__'; },
+    /* WebUI 内支付：root 直接拉起微信/支付宝（不经过浏览器） */
+    payWechat: function (userId) {
+        var uid = parseInt(userId, 10);
+        if (!isFinite(uid) || uid < 0) uid = 0;
+        return "am start -W --user " + uid + " -n com.tencent.mm/com.tencent.mm.plugin.remittance.ui.RemittanceAdapterUI " +
+            "--es 'receiver_name' '" + PAYMENT_WECHAT_RECEIVER + "' --ei 'scene' '1' --ei 'pay_channel' '24' " +
+            ">/dev/null 2>&1 && echo __OPEN_OK__ || echo __OPEN_FAIL__";
+    },
+    listUsers: function () { return 'pm list users 2>/dev/null'; },
+    checkWechatUser: function (userId) {
+        var uid = parseInt(userId, 10);
+        if (!isFinite(uid) || uid < 0) uid = 0;
+        return "pm list packages --user " + uid + " com.tencent.mm 2>/dev/null | grep -q '^package:com.tencent.mm$' && echo __INSTALLED__ || echo __MISSING__";
+    },
+    payAlipay: function () {
+        return 'am start -a android.intent.action.VIEW -d "alipayqr://platformapi/startapp?saId=10000007&clientVersion=3.7.0.0718&qrcode=' +
+            encodeURIComponent(PAYMENT_ALIPAY_QRCODE) + '" >/dev/null 2>&1 && echo __OPEN_OK__ || echo __OPEN_FAIL__';
+    },
 };
 
 /* ============================================================
@@ -419,7 +442,7 @@ function parseJsonLoose(text) {
  * 6. Mock 模式
  * ============================================================ */
 var MOCK_INITIAL_CONFIG = [
-    '# 慕容触控采样率 v5.0 采样率配置（浏览器预览 Mock）',
+    '# 慕容触控采样率 v5.8 采样率配置（浏览器预览 Mock）',
     '# 第一行：全局采样率，0 = 不强制',
     '0',
     '# 包名 采样率(Hz)',
@@ -431,7 +454,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.0.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.8.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -484,7 +507,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.0.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.8.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -515,6 +538,19 @@ function mockExec(cmd) {
     if (c.indexOf('api.sh') >= 0) return mockPaidExec(c);
     return sleep(mockDelay(c)).then(function () {
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
+        if (c.indexOf('update.json') >= 0) {
+            if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
+            return JSON.stringify({ version: '5.9.0', tag_name: 'v5.9.0', html_url: 'https://github.com/mongruyan/murongtouch/releases/tag/v5.9.0' });
+        }
+        if (c.indexOf('pm list users') >= 0) return 'Users:\n\tUserInfo{0:机主:13} running\n\tUserInfo{999:MultiApp:13} running\n';
+        if (c.indexOf('pm list packages --user') >= 0 && c.indexOf('com.tencent.mm') >= 0) {
+            var mockUserMatch = c.match(/--user\s+(\d+)/);
+            var mockUid = mockUserMatch ? parseInt(mockUserMatch[1], 10) : 0;
+            var mockInstalled = mockUid === 0 || mockUid === 999;
+            if (c.indexOf('__INSTALLED__') >= 0) return mockInstalled ? '__INSTALLED__' : '__MISSING__';
+            return mockInstalled ? 'package:com.tencent.mm' : '';
+        }
+        if (c.indexOf('RemittanceAdapterUI') >= 0) return '__OPEN_OK__';
         if (c.indexOf('android.intent.action.SEND') >= 0) return '__SHARE_OK__';
         if (c.indexOf('android.intent.action.VIEW') >= 0) return '__OPEN_OK__';
         /* 诊断收集命令里也包含 --json/--probe，必须最先匹配 */
@@ -525,7 +561,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.0.0 后端探测报告',
+            return ['touch_rate_daemon v5.8.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -549,7 +585,7 @@ function mockExec(cmd) {
         if (c.indexOf('--measure-rate') >= 0) return JSON.stringify({ ok: true, hz: MOCK.measureHz, events: 1083, seconds: 3.01, backend: 'hbp' });
         if (c.indexOf('nonLocalizedLabel') >= 0) return MOCK.apps.map(function (app) { return app.pkg + '|' + app.label; }).join('\n');
         if (c.indexOf('pm list packages') >= 0) return MOCK.apps.map(function (app) { return app.pkg; }).join('\n');
-        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.0.0\nversionCode=500\nauthor=murong';
+        if (c.indexOf('module.prop') >= 0 && c.indexOf('cat ') >= 0) return 'id=gt8pro_touch\nname=慕容触控采样率\nversion=v5.8.0\nversionCode=540\nauthor=murong';
         if (c.indexOf('android.intent.action.SEND') >= 0) return '__SHARE_OK__';
         if (c.indexOf('android.intent.action.VIEW') >= 0) return '__OPEN_OK__';
         if (c.indexOf('license.txt') >= 0 && c.indexOf('base64 -d') >= 0) {
@@ -735,7 +771,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.0：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.8：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1294,7 +1330,7 @@ function renderHome() {
     if (alert) {
         if (s.degraded) alert.hidden = false;
         else alert.hidden = true;
-        if (s.degraded) alert.textContent = '当前 daemon 不支持 --json 接口（可能未升级到 v5.0），已降级读取基础状态。';
+        if (s.degraded) alert.textContent = '当前 daemon 不支持 --json 接口（可能未升级到 v5.8），已降级读取基础状态。';
     }
     setText('last-update', '更新于 ' + timeLine());
     renderHeader();
@@ -1973,30 +2009,145 @@ async function paidValidateToken() {
     }
 }
 
-async function refreshServerEntitlement() {
+/* ---------- 授权同步（v5.8：SignedLease claims.expires_at + 顺序重试） ---------- */
+function normalizeSignedLease(data, localDeviceHash) {
+    var lease = data && typeof data === 'object' ? data : {};
+    if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
+    var claims = lease.claims && typeof lease.claims === 'object' ? lease.claims : null;
+    var expiresAt = '';
+    if (claims) expiresAt = String(claims.expires_at || claims.expiresAt || '');
+    if (!expiresAt) expiresAt = String(lease.expires_at || lease.expiresAt || '');
+    if (!expiresAt) throw new Error('租约响应缺少 claims.expires_at');
+    var algorithm = String(lease.algorithm || lease.alg || '');
+    if (!algorithm) throw new Error('租约响应缺少 algorithm');
+    if (!lease.payload) throw new Error('租约响应缺少 payload');
+    if (!lease.signature) throw new Error('租约响应缺少 signature');
+    if (!claims) claims = { expires_at: expiresAt };
+    var deviceHash = String(claims.device_id_hash || lease.device_id_hash || '');
+    if (!deviceHash) throw new Error('租约响应缺少 device_id_hash');
+    var expected = localDeviceHash != null ? String(localDeviceHash) : String((APP.paid.device && APP.paid.device.device_id_hash) || '');
+    if (expected && deviceHash !== expected) throw new Error('租约设备哈希不匹配');
+    return { lease: lease, claims: claims, expiresAt: expiresAt };
+}
+
+/* 时间解析：兼容 epoch（秒/毫秒）、ISO、`YYYY-MM-DD HH:mm:ss`、带时区字符串 */
+function dateTimeToMillis(value) {
+    if (typeof value === 'number' && isFinite(value)) return value < 1e12 ? value * 1000 : value;
+    var text = String(value == null ? '' : value).trim();
+    if (!text) return 0;
+    if (/^\d+$/.test(text)) {
+        var numeric = Number(text);
+        return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+    var parsed = Date.parse(text);
+    if (!isNaN(parsed)) return parsed;
+    var match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (match) {
+        return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10),
+            parseInt(match[4] || '0', 10), parseInt(match[5] || '0', 10), parseInt(match[6] || '0', 10)).getTime();
+    }
+    return 0;
+}
+
+function formatLeaseExpiry(value) {
+    var ms = dateTimeToMillis(value);
+    if (!ms) return '—';
+    var date = new Date(ms);
+    var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+        ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+function latestLicenseMeta(licenses, localDeviceHash) {
+    var list = (licenses || []).filter(function (item) { return item && typeof item === 'object'; });
+    if (!list.length) return null;
+    var expected = localDeviceHash != null ? String(localDeviceHash) : String((APP.paid.device && APP.paid.device.device_id_hash) || '');
+    var active = list.filter(function (item) {
+        var status = String(item.status || '').toLowerCase();
+        if (status === 'revoked' || status === 'disabled') return false;
+        if (item.can_use_premium === false) return false;
+        return status === 'active';
+    });
+    if (!active.length) return null;
+    var hashOf = function (item) {
+        return String(item.device_id_hash || (item.device && item.device.device_id_hash) || '');
+    };
+    var matched = expected ? active.filter(function (item) { return hashOf(item) === expected; }) : [];
+    var pool = matched.length ? matched : active;
+    pool = pool.slice().sort(function (a, b) {
+        var timeA = Number(a.bound_at_ms || 0) || dateTimeToMillis(a.bound_at || a.activated_at || a.created_at || a.issued_at || '');
+        var timeB = Number(b.bound_at_ms || 0) || dateTimeToMillis(b.bound_at || b.activated_at || b.created_at || b.issued_at || '');
+        if (timeA !== timeB) return timeB - timeA;
+        return Number(b.id || b.license_id || 0) - Number(a.id || a.license_id || 0);
+    });
+    var latest = pool[0];
+    var cardKey = String(latest.card_key || latest.key || '');
+    return {
+        key_last4: String(latest.key_last4 || latest.license_last4 || (cardKey ? cardKey.slice(-4) : '')),
+        license_id: latest.id != null ? latest.id : (latest.license_id != null ? latest.license_id : ''),
+        binding_id: latest.binding_id != null ? latest.binding_id : '',
+        status: String(latest.status || ''),
+        device_model: String(latest.device_model || ''),
+        device_id_hash: hashOf(latest),
+        bound_at: String(latest.bound_at || '')
+    };
+}
+
+async function refreshLicensesMeta() {
+    if (!paidLoggedIn()) return null;
+    try {
+        var resp = await paidApi('GET', 'v1/touch/licenses', { auth: true });
+        var list = paidArray(paidData(resp), 'licenses');
+        APP.paid.licenses = list;
+        var meta = latestLicenseMeta(list);
+        APP.paid.licenseMetaLoaded = true;
+        APP.paid.licenseMeta = meta;
+        return meta;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function saveEntitlementCache() {
+    var ent = APP.paid.entitlement || {};
+    var meta = APP.paid.licenseMeta;
+    var auth = APP.paid.auth || {};
+    var status = String(ent.status || auth.entitlement || 'unknown');
+    var loaded = !!APP.paid.licenseMetaLoaded;
+    /* 只用选中的 active license；确实加载过 licenses 且没有 active 时清空尾号 */
+    var last4 = meta ? String(meta.key_last4 || '') : (loaded ? '' : String(ent.license_last4 || auth.license_last4 || ''));
+    var licenseId = meta ? (meta.license_id != null ? meta.license_id : '') : (loaded ? '' : (auth.license_id != null ? auth.license_id : ''));
+    var bindingId = meta ? (meta.binding_id != null ? meta.binding_id : '') : (loaded ? '' : (auth.binding_id != null ? auth.binding_id : ''));
+    var bound = !!((meta && meta.binding_id) || ent.device_bound || auth.device_bound === 1 || status === 'active' || status === 'grace');
+    var cache = {
+        entitlement: status,
+        license_last4: last4,
+        device_bound: bound ? 1 : 0,
+        license_id: licenseId,
+        binding_id: bindingId
+    };
+    try {
+        await runCommand(CMD.paidSaveEntitlement(b64urlEncode(JSON.stringify(cache))), { timeout: 20000 });
+    } catch (e) { /* ignore */ }
+    return cache;
+}
+
+async function refreshServerEntitlement(options) {
+    options = options || {};
     if (!paidLoggedIn()) return null;
     try {
         var resp = await paidApi('GET', 'v1/touch/entitlement?' + paidDeviceQuery(), { auth: true });
         var data = paidData(resp);
         var status = String(data.status || data.entitlement || 'unknown');
+        var meta = APP.paid.licenseMeta || {};
+        var last4 = String(data.license_last4 || (data.license && data.license.key_last4) || meta.key_last4 || (APP.paid.auth && APP.paid.auth.license_last4) || '');
         APP.paid.entitlement = {
             status: status,
-            license_last4: data.license_last4 || (data.license && data.license.key_last4) || '',
-            device_bound: !!(data.device_bound || (data.license && data.license.bound)),
+            license_last4: last4,
+            device_bound: !!(data.device_bound || (data.license && data.license.bound) || status === 'active' || status === 'grace'),
             features: paidArray(data.features)
         };
-        var cache = {
-            entitlement: status,
-            license_last4: APP.paid.entitlement.license_last4 || '',
-            device_bound: APP.paid.entitlement.device_bound ? 1 : 0
-        };
-        try { await runCommand(CMD.paidSaveEntitlement(b64urlEncode(JSON.stringify(cache))), { timeout: 20000 }); } catch (e2) { /* ignore */ }
-        if (status === 'active' || status === 'grace') {
-            var auth = APP.paid.auth || {};
-            if (auth.lease_valid !== 1 || Number(auth.lease_remaining_seconds || 0) < PAID_LEASE_RENEW_SECONDS) {
-                await refreshLease(true);
-            }
-        }
+        if (!options.skipSave) await saveEntitlementCache();
         return APP.paid.entitlement;
     } catch (e) {
         return null;
@@ -2009,15 +2160,67 @@ async function refreshLease(silent) {
         var resp = await paidApi('POST', 'v1/touch/licenses/lease', {
             auth: true, nonce: true, json: paidDevicePayload()
         });
-        var lease = paidData(resp);
-        if (!lease || !lease.expires_at) throw new Error('租约响应缺少 expires_at');
-        await runCommand(CMD.paidSaveLease(b64urlEncode(JSON.stringify(lease))), { timeout: 20000 });
+        var data = paidData(resp);
+        var normalized = normalizeSignedLease(data);
+        await runCommand(CMD.paidSaveLease(b64urlEncode(JSON.stringify(normalized.lease))), { timeout: 20000 });
         await refreshPaidState({ silent: true });
         if (!silent) toast('租约已续期', 'ok');
-        return lease;
+        return normalized;
     } catch (e) {
         if (!silent) toast('续租失败：' + (e && e.message ? e.message : e), 'err', 3600);
         return null;
+    }
+}
+
+function setPaymentSyncStatus(message) {
+    var overlay = $('payment-overlay');
+    if (overlay && !overlay.hidden) setPaymentLiveStatus(message);
+}
+
+async function syncPaidAuthorization(options) {
+    options = options || {};
+    if (!paidLoggedIn()) return { ok: false, error: '未登录' };
+    APP.paid.syncing = true;
+    APP.paid.syncError = '';
+    if (options.payment) setPaymentSyncStatus('支付成功，授权已到账，正在获取租约…');
+    renderPaidPage();
+    try {
+        /* 1) entitlement */
+        APP.paid.licenseMeta = null;
+        APP.paid.licenseMetaLoaded = false;
+        await refreshServerEntitlement({ skipSave: true });
+        /* 2) licenses（最新 key_last4 / license_id / binding_id） */
+        await refreshLicensesMeta();
+        /* 3) lease（失败最多重试 3 次，间隔 1.5s） */
+        var leaseResult = null;
+        var lastErr = null;
+        for (var attempt = 1; attempt <= 3; attempt++) {
+            var result = await refreshLease(true);
+            if (result) { leaseResult = result; break; }
+            lastErr = new Error('租约尚未生效');
+            if (attempt < 3) await sleep(1500);
+        }
+        /* 4) auth_state 读取 + 写 state + 再刷新一次展示 */
+        await refreshPaidState({ silent: true });
+        await saveEntitlementCache();
+        await refreshPaidState({ silent: true });
+        var auth = APP.paid.auth || {};
+        var entitled = auth.entitlement === 'active' || auth.entitlement === 'grace';
+        var ok = entitled && Number(auth.lease_valid) === 1;
+        if (!APP.paid.entitlement || !APP.paid.entitlement.license_last4) {
+            APP.paid.entitlement = Object.assign({}, APP.paid.entitlement || {}, {
+                license_last4: auth.license_last4 || (APP.paid.licenseMeta && APP.paid.licenseMeta.key_last4) || ''
+            });
+        }
+        APP.paid.syncError = ok ? '' : (lastErr ? (lastErr.message || String(lastErr)) : (auth.entitlement === 'active' ? '租约待同步' : '授权状态未同步'));
+        return { ok: ok, auth: auth, lease: leaseResult, error: APP.paid.syncError };
+    } catch (e) {
+        APP.paid.syncError = e && e.message ? e.message : String(e);
+        return { ok: false, error: APP.paid.syncError };
+    } finally {
+        APP.paid.syncing = false;
+        renderPaidPage();
+        updatePaidNotice();
     }
 }
 
@@ -2035,9 +2238,7 @@ async function ensureLeaseFresh(silent) {
 async function loadPaidTab() {
     await refreshPaidState({ silent: true });
     await paidValidateToken();
-    await refreshServerEntitlement();
-    await refreshPaidState({ silent: true });
-    await ensureLeaseFresh(true);
+    await syncPaidAuthorization({ silent: true });
 }
 
 /* ---------- 页面渲染 ---------- */
@@ -2053,6 +2254,47 @@ function paidEntitlementLabel(ent) {
     if (ent === 'binding_required') return '待绑定';
     if (ent === 'not_purchased') return '未购买';
     return '未授权';
+}
+
+/* 购买入口可见性：仅明确未购买/被撤销时显示；已授权（含租约过期但 entitlement active）隐藏 */
+function paidPurchaseVisible(auth) {
+    var a = auth || APP.paid.auth || {};
+    var status = String(a.entitlement || '');
+    if (status === 'active' || status === 'grace') return false;
+    if (Number(a.lease_valid) === 1) return false;
+    return status === 'not_purchased' || status === 'revoked' || status === 'unknown' || status === '' || status === 'none';
+}
+
+function paidStatusSummary(auth) {
+    var a = auth || APP.paid.auth || {};
+    var status = String(a.entitlement || 'unknown');
+    var days = Number(a.lease_days_left || 0);
+    var leaseValid = Number(a.lease_valid) === 1;
+    if (status === 'active') {
+        if (leaseValid && days > 0) return '已授权 · 单机永久 · 租约剩余 ' + days + ' 天';
+        if (String(a.lease_expires_at || '')) return '已授权 · 单机永久 · 租约已过期，请续租';
+        if (APP.paid.syncing) return '已授权 · 单机永久 · 正在获取租约…';
+        if (APP.paid.syncError) return '已授权 · 单机永久 · 租约待同步，点「刷新授权」重试';
+        return '已授权 · 单机永久 · 租约待同步，点「刷新授权」重试';
+    }
+    if (status === 'grace') return '离线授权（宽限期）' + (days > 0 ? ' · 剩余 ' + days + ' 天' : '') + (leaseValid ? '' : ' · 租约待同步');
+    if (status === 'expired') return '授权已过期，请续租';
+    if (status === 'revoked') return '授权已被撤销';
+    if (status === 'not_purchased') return '未购买授权';
+    if (status === 'binding_required') return '需要绑定设备';
+    return '未授权';
+}
+
+function applyPurchaseVisibility() {
+    var visible = paidPurchaseVisible();
+    ['paid-purchase-section', 'paid-purchase-label'].forEach(function (id) {
+        var node = $(id);
+        if (node) node.hidden = !visible;
+    });
+    var buy = $('btn-paid-buy');
+    if (buy) buy.hidden = !visible;
+    var checkBtn = $('btn-paid-check-order');
+    if (checkBtn) checkBtn.hidden = !(APP.paid.order && APP.paid.order.status !== 'paid');
 }
 
 function renderPaidAccount() {
@@ -2081,29 +2323,39 @@ function renderPaidEntitlement() {
     var ent = a.entitlement || 'unknown';
     var logged = paidLoggedIn();
     var html = '<div class="paid-card-title"><strong>授权状态</strong><span class="paid-tag ' +
-        (ent === 'active' || ent === 'grace' ? 'ok' : (ent === 'expired' ? 'err' : '')) + '">' +
+        (ent === 'active' || ent === 'grace' ? 'ok' : (ent === 'expired' || ent === 'revoked' ? 'err' : '')) + '">' +
         escapeHtml(paidEntitlementLabel(ent)) + '</span></div>';
+    html += '<div class="paid-kv"><span>状态说明</span><b>' + escapeHtml(paidStatusSummary(a)) + '</b></div>';
     if (ent === 'active' || ent === 'grace') {
-        html += '<div class="paid-kv"><span>卡密尾号</span><b>' + escapeHtml(a.license_last4 || '—') + '</b></div>';
+        var leaseValid = a.lease_valid === 1;
+        var days = Number(a.lease_days_left || 0);
+        var meta = APP.paid.licenseMeta || {};
+        var last4 = a.license_last4 || meta.key_last4 || '';
+        var syncing = !!APP.paid.syncing;
+        html += '<div class="paid-kv"><span>卡密尾号</span><b>' + escapeHtml(last4 || '—') + '</b></div>';
         html += '<div class="paid-kv"><span>绑定设备</span><b>' + escapeHtml(a.device_model || '本机') + '</b></div>';
-        html += '<div class="paid-kv"><span>租约到期</span><b>' + escapeHtml(a.lease_expires_at || '—') + '</b></div>';
-        html += '<div class="paid-kv"><span>剩余天数</span><b>' + String(a.lease_days_left || 0) + ' 天' +
-            (a.lease_valid === 1 ? '' : '（已过期，需联网续租）') + '</b></div>';
+        html += '<div class="paid-kv"><span>租约到期</span><b>' + escapeHtml(formatLeaseExpiry(a.lease_expires_at) || (syncing ? '正在获取…' : '—')) + '</b></div>';
+        html += '<div class="paid-kv"><span>剩余天数</span><b>' + (leaseValid ? (days + ' 天') : (syncing ? '正在获取…' : '待同步')) + '</b></div>';
         if (Array.isArray(a.features) && a.features.length) {
             html += '<div class="paid-kv"><span>功能</span><b>' + escapeHtml(a.features.join('、')) + '</b></div>';
         }
+        if (!leaseValid) {
+            html += '<p class="paid-hint">授权已到账，正在自动获取租约；若长时间未更新，点「刷新授权」重试。</p>';
+        }
         html += '<div class="paid-actions"><button type="button" class="btn btn-primary" data-paid-action="renew-lease">续租</button>' +
             '<button type="button" class="btn btn-secondary" data-paid-action="refresh-auth">刷新授权</button></div>';
-    } else {
-        html += '<div class="paid-kv"><span>状态</span><b>' + escapeHtml(paidEntitlementLabel(ent)) + '</b></div>';
-        if (!logged) {
-            html += '<p class="paid-hint">请先登录账号，再购买授权或输入卡密激活。</p>';
-            html += '<div class="paid-actions"><button type="button" class="btn btn-primary" data-paid-action="login">登录</button></div>';
+    } else if (logged) {
+        if (ent === 'expired') {
+            html += '<p class="paid-hint">租约已过期：点「续租」恢复；也可输入新卡密激活。</p>';
+            html += '<div class="paid-actions"><button type="button" class="btn btn-primary" data-paid-action="renew-lease">续租</button></div>';
         } else {
             html += '<p class="paid-hint">已有卡密可直接激活；未购买可点下方「购买授权」。</p>';
-            html += '<div class="paid-input-row"><input id="paid-card-key" class="input" type="text" placeholder="输入卡密（如 SPK-XXXX-XXXX-XXXX）" autocomplete="off" spellcheck="false"><button type="button" class="btn btn-primary" data-paid-action="activate">激活</button></div>';
-            html += '<div class="paid-actions"><button type="button" class="btn btn-secondary" data-paid-action="refresh-auth">刷新授权</button></div>';
         }
+        html += '<div class="paid-input-row"><input id="paid-card-key" class="input" type="text" placeholder="输入卡密（如 SPK-XXXX-XXXX-XXXX）" autocomplete="off" spellcheck="false"><button type="button" class="btn btn-primary" data-paid-action="activate">激活</button></div>';
+        html += '<div class="paid-actions"><button type="button" class="btn btn-secondary" data-paid-action="refresh-auth">刷新授权</button></div>';
+    } else {
+        html += '<p class="paid-hint">请先登录账号，再购买授权或输入卡密激活。</p>';
+        html += '<div class="paid-actions"><button type="button" class="btn btn-primary" data-paid-action="login">登录</button></div>';
     }
     if (APP.isMock) {
         html += '<div class="paid-actions"><button type="button" class="btn btn-secondary" data-paid-action="mock-expire">模拟过期</button>' +
@@ -2123,6 +2375,7 @@ function paidPremiumText() {
 function renderPaidPage() {
     renderPaidAccount();
     renderPaidEntitlement();
+    applyPurchaseVisibility();
     var premiumText = paidPremiumText();
     setText('paid-premium-status', premiumText);
     var premiumRow = $('paid-premium-status');
@@ -2142,9 +2395,13 @@ function updatePaidNotice() {
     if (p.installed !== 1) {
         message = '未安装付费组件：请到用户页登录、购买授权并下载付费组件。';
     } else if (!paidEntitled()) {
-        message = (a.entitlement === 'expired' || a.lease_valid === 0 && a.entitlement === 'active' || a.entitlement === 'grace')
-            ? '授权已过期：请到用户页续租以恢复采样率切换。'
-            : '未授权：请到用户页购买/激活卡密并续租。';
+        if (a.entitlement === 'expired' || a.entitlement === 'revoked') {
+            message = '授权已过期：请到用户页续租以恢复采样率切换。';
+        } else if (a.entitlement === 'active' || a.entitlement === 'grace') {
+            message = '授权已到账：正在同步租约，可到用户页点「刷新授权」。';
+        } else {
+            message = '未授权：请到用户页购买/激活卡密并续租。';
+        }
     }
     if (!message) { node.hidden = true; return; }
     node.hidden = false;
@@ -2330,14 +2587,11 @@ async function activatePaidCard(code) {
         });
         var data = paidData(resp);
         var last4 = String(data.key_last4 || data.license_last4 || code.slice(-4));
-        await runCommand(CMD.paidSaveEntitlement(b64urlEncode(JSON.stringify({
-            entitlement: 'active', license_last4: last4, device_bound: 1
-        }))), { timeout: 20000 });
+        APP.paid.entitlement = { status: 'active', license_last4: last4, device_bound: true, features: ['touch_sampling'] };
+        await saveEntitlementCache();
         closePaidOverlay();
         toast('激活成功', 'ok');
-        await refreshLease(true);
-        await refreshServerEntitlement();
-        await refreshPaidState({ silent: true });
+        await syncPaidAuthorization({});
     } catch (e) {
         toast('激活失败：' + (e && e.message ? e.message : e), 'err', 4200);
     }
@@ -2345,9 +2599,13 @@ async function activatePaidCard(code) {
 
 async function renewPaidLease() {
     if (!paidLoggedIn()) { showLoginOverlay(); return; }
-    await refreshLease(false);
-    await refreshServerEntitlement();
-    await refreshPaidState({ silent: true });
+    var result = await syncPaidAuthorization({});
+    if (result.ok) {
+        var days = Number((APP.paid.auth || {}).lease_days_left || 0);
+        toast('租约已续期 · 剩余 ' + days + ' 天', 'ok');
+    } else {
+        toast('续租失败：' + (result.error || '租约尚未生效'), 'err', 4200);
+    }
 }
 
 /* ---------- 购买 ---------- */
@@ -2391,24 +2649,76 @@ async function showPurchaseOverlay() {
     }
 }
 
+function paymentMethodKind(code) {
+    var value = String(code || '').toLowerCase();
+    return value.indexOf('ali') >= 0 || value === 'zfb' ? 'alipay' : 'wechat';
+}
+
+function paymentMethodLabel(code) {
+    return paymentMethodKind(code) === 'alipay' ? '支付宝' : '微信支付';
+}
+
+function formatPayAmount(value) {
+    var n = Number(value);
+    return isFinite(n) ? n.toFixed(2) : '0.00';
+}
+
+function paymentQrDataUri() {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">' +
+        '<rect width="220" height="220" fill="#FFFFFF"/>' +
+        '<g fill="#111111">' +
+        '<rect x="18" y="18" width="46" height="46"/><rect x="156" y="18" width="46" height="46"/>' +
+        '<rect x="18" y="156" width="46" height="46"/>' +
+        '<rect x="28" y="28" width="26" height="26" fill="#FFFFFF"/>' +
+        '<rect x="166" y="28" width="26" height="26" fill="#FFFFFF"/>' +
+        '<rect x="28" y="166" width="26" height="26" fill="#FFFFFF"/>' +
+        '<rect x="78" y="18" width="12" height="12"/><rect x="100" y="18" width="12" height="12"/>' +
+        '<rect x="122" y="18" width="12" height="12"/><rect x="78" y="40" width="12" height="12"/>' +
+        '<rect x="112" y="40" width="12" height="12"/><rect x="134" y="52" width="12" height="12"/>' +
+        '<rect x="78" y="62" width="12" height="12"/><rect x="100" y="62" width="12" height="12"/>' +
+        '<rect x="18" y="78" width="12" height="12"/><rect x="40" y="78" width="12" height="12"/>' +
+        '<rect x="62" y="78" width="12" height="12"/><rect x="84" y="78" width="12" height="12"/>' +
+        '<rect x="106" y="78" width="12" height="12"/><rect x="128" y="78" width="12" height="12"/>' +
+        '<rect x="150" y="78" width="12" height="12"/><rect x="172" y="78" width="12" height="12"/>' +
+        '<rect x="194" y="78" width="12" height="12"/><rect x="18" y="100" width="12" height="12"/>' +
+        '<rect x="52" y="100" width="12" height="12"/><rect x="84" y="100" width="12" height="12"/>' +
+        '<rect x="116" y="100" width="12" height="12"/><rect x="148" y="100" width="12" height="12"/>' +
+        '<rect x="180" y="100" width="12" height="12"/><rect x="30" y="122" width="12" height="12"/>' +
+        '<rect x="62" y="122" width="12" height="12"/><rect x="94" y="122" width="12" height="12"/>' +
+        '<rect x="126" y="122" width="12" height="12"/><rect x="158" y="122" width="12" height="12"/>' +
+        '<rect x="190" y="122" width="12" height="12"/><rect x="18" y="144" width="12" height="12"/>' +
+        '<rect x="50" y="144" width="12" height="12"/><rect x="82" y="144" width="12" height="12"/>' +
+        '<rect x="114" y="144" width="12" height="12"/><rect x="146" y="144" width="12" height="12"/>' +
+        '<rect x="178" y="144" width="12" height="12"/><rect x="78" y="166" width="12" height="12"/>' +
+        '<rect x="110" y="166" width="12" height="12"/><rect x="142" y="166" width="12" height="12"/>' +
+        '<rect x="174" y="166" width="12" height="12"/><rect x="78" y="188" width="12" height="12"/>' +
+        '<rect x="122" y="188" width="12" height="12"/><rect x="166" y="188" width="12" height="12"/>' +
+        '</g></svg>';
+    return 'data:image/svg+xml;base64,' + utf8ToBase64(svg);
+}
+
+function paymentQrSrc(method) {
+    if (isMockMode()) return paymentQrDataUri();
+    return PAYMENT_ASSET_URL + '?type=' + paymentMethodKind(method);
+}
+
 function renderPurchaseOverlay() {
     var p = APP.paid.purchase || {};
     var product = p.product || {};
-    var price = Number(product.price != null ? product.price : 3).toFixed(2);
     var methods = p.methods || [];
     var selected = p.selectedMethod || (methods[0] && methods[0].code) || 'wechat';
-    var html = '<div class="paid-kv"><span>商品</span><b>' + escapeHtml(product.name || '慕容触控采样率 授权（3元 单机永久）') + '</b></div>';
-    html += '<div class="paid-kv"><span>价格</span><b>¥' + price + ' · 单机永久</b></div>';
-    html += '<p class="paid-hint">支付成功后自动发放卡密并绑定本机，无需手动输入；支付页面将在系统浏览器中打开。</p>';
+    var html = '<div class="paid-kv"><span>商品</span><b>' + escapeHtml(product.name || '慕容触控采样率 授权（单机永久）') + '</b></div>';
+    html += '<div class="paid-kv"><span>价格</span><b>3 元起 · 单机永久</b></div>';
+    html += '<p class="paid-hint">实际支付金额以下单后的支付弹层为准，请在弹层内核对大字金额。支付成功后卡密自动绑定本机，无需手动输入。</p>';
     html += '<div class="paid-method" id="paid-methods">';
     methods.forEach(function (m) {
         html += '<button type="button" data-paid-method="' + escapeHtml(m.code) + '"' +
-            (m.code === selected ? ' class="active"' : '') + '>' + escapeHtml(m.name || paymentMethodName(m.code)) + '</button>';
+            (m.code === selected ? ' class="active"' : '') + '>' + escapeHtml(m.name || paymentMethodLabel(m.code)) + '</button>';
     });
     html += '</div>';
     showPaidOverlay('购买授权', html, [
-        { label: '稍后', className: 'btn-secondary', onClick: closePaidOverlay },
-        { label: '支付 ¥' + price, className: 'btn-primary', onClick: function () { createPaidOrder(); } }
+        { label: '取消', className: 'btn-secondary', onClick: closePaidOverlay },
+        { label: '创建订单并支付', className: 'btn-primary', onClick: function () { createPaidOrder(); } }
     ]);
     document.querySelectorAll('#paid-methods [data-paid-method]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -2428,32 +2738,32 @@ async function createPaidOrder() {
     var p = APP.paid.purchase || {};
     var product = p.product || {};
     if (!product.id) { toast('商品信息缺失', 'err'); return; }
-    showPaidOverlay('正在创建订单', '<p class="paid-hint">正在创建订单，请稍候…</p>', [{ label: '取消', className: 'btn-secondary', onClick: closePaidOverlay }]);
+    showPaidOverlay('正在创建订单', '<p class="paid-hint">正在创建订单并锁定应付金额，请稍候…</p>', [{ label: '取消', className: 'btn-secondary', onClick: closePaidOverlay }]);
     try {
         var contact = (APP.paid.auth && (APP.paid.auth.username || APP.paid.auth.user_id)) || 'module-webui';
         var body = 'product_id=' + encodeURIComponent(String(product.id)) +
             '&payment_method=' + encodeURIComponent(p.selectedMethod || 'wechat') +
             '&contact_info=' + encodeURIComponent(String(contact)) +
-            '&order_kind=' + encodeURIComponent('touch_cardkey_new') +
-            '&device_info=' + encodeURIComponent(JSON.stringify(Object.assign({ client: 'module-webui', order_kind: 'touch_cardkey_new' }, paidDevicePayload())));
+            '&order_kind=' + encodeURIComponent('touch') +
+            '&device_info=' + encodeURIComponent(JSON.stringify(Object.assign({ client: 'module-webui', order_kind: 'touch' }, paidDevicePayload())));
         var resp = await paidApi('POST', 'payment.php?action=create_order', { auth: true, form: true, formBody: body });
         var data = paidData(resp);
         if (!data.order_no) throw new Error(resp.message || '订单响应缺少订单号');
+        var payAmount = data.pay_amount != null ? Number(data.pay_amount) : Number(product.price || 3);
         APP.paid.order = {
             order_no: String(data.order_no),
             order_access_token: String(data.order_access_token || data.order_token || data.access_token || ''),
-            payment_url: String(data.payment_url || ''),
-            pay_amount: Number(data.pay_amount || product.price || 3),
+            pay_amount: isFinite(payAmount) ? payAmount : Number(product.price || 3),
+            expired_at: String(data.expired_at || ''),
             status: 'pending',
-            product_name: String(product.name || '慕容触控采样率 授权')
+            product_name: String(product.name || '慕容触控采样率 授权'),
+            payment_method: p.selectedMethod || 'wechat'
         };
         rememberPaidOrder(APP.paid.order);
-        renderPaymentWaitingOverlay();
-        renderPaidPage();
-        if (APP.paid.order.payment_url) {
-            await runCommand(CMD.openUrl(APP.paid.order.payment_url), { timeout: 15000 });
-        }
-        startPaidOrderPolling();
+        closePaidOverlay();
+        openPaymentOverlay();
+        renderPaymentOrder(APP.paid.order);
+        startPaymentPolling();
     } catch (e) {
         showPaidOverlay('创建订单失败', '<p class="paid-hint">' + escapeHtml(e && e.message ? e.message : e) + '</p>', [
             { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay },
@@ -2462,35 +2772,285 @@ async function createPaidOrder() {
     }
 }
 
-function renderPaymentWaitingOverlay() {
-    var order = APP.paid.order || {};
-    var html = '<div class="paid-kv"><span>订单号</span><b>' + escapeHtml(order.order_no || '—') + '</b></div>';
-    html += '<div class="paid-kv"><span>应付金额</span><b>¥' + Number(order.pay_amount || 0).toFixed(2) + '</b></div>';
-    html += '<p class="paid-hint">已打开系统浏览器支付页；支付完成后回到本页会自动确认，也可点下方按钮手动检查。</p>';
-    html += '<p class="paid-hint" id="paid-pay-status">等待支付…</p>';
-    showPaidOverlay('等待支付', html, [
-        { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay },
-        { label: '重新打开支付页', className: 'btn-secondary', onClick: function () {
-            if (order.payment_url) runCommand(CMD.openUrl(order.payment_url), { timeout: 15000 });
-        } },
-        { label: '我已完成支付', className: 'btn-primary', onClick: function () { checkPaidOrder(); } }
-    ]);
+/* ---------- WebUI 内支付弹层（照显示模块 payment-sheet） ---------- */
+function openPaymentOverlay() {
+    var overlay = $('payment-overlay');
+    if (overlay) overlay.hidden = false;
 }
 
-function startPaidOrderPolling() {
-    stopPaidOrderPolling();
+function closePaymentOverlay() {
+    var overlay = $('payment-overlay');
+    if (overlay) overlay.hidden = true;
+    stopPaymentPolling();
+}
+
+function setPaymentLiveStatus(message, state) {
+    var node = $('payment-live-status');
+    if (!node) return;
+    node.className = 'payment-live-status' + (state === 'success' ? ' success' : state === 'error' ? ' error' : '');
+    var text = $('payment-live-text');
+    if (text) text.textContent = message;
+}
+
+/* ---------- 微信支付实例发现（照慕容调度 parseWeChatPayTargets / discoverWeChatPayTargets） ---------- */
+function parseUserIdsFromOutput(text) {
+    var ids = [];
+    var source = String(text == null ? '' : text);
+    var re = /UserInfo\{(\d+):/g;
+    var match;
+    while ((match = re.exec(source)) !== null) {
+        var id = parseInt(match[1], 10);
+        if (isFinite(id) && id >= 0 && ids.indexOf(id) < 0) ids.push(id);
+    }
+    ids.sort(function (a, b) { return a - b; });
+    return ids;
+}
+
+function wechatTargetLabel(userId, cloneCount) {
+    if (userId === 0) return '微信';
+    if (cloneCount === 1) return '微信（分身）';
+    return '微信（分身 ' + userId + '）';
+}
+
+function parseWechatTargets(userListOutput, installedUserIds) {
+    var installed = (installedUserIds || []).map(function (id) { return parseInt(id, 10); });
+    var ids = parseUserIdsFromOutput(userListOutput).filter(function (id) {
+        return installed.indexOf(id) >= 0;
+    });
+    var cloneCount = ids.filter(function (id) { return id !== 0; }).length;
+    return ids.map(function (id) {
+        return { userId: id, id: id, label: wechatTargetLabel(id, cloneCount) };
+    });
+}
+
+function shouldShowWechatSelector(targets) {
+    return (targets || []).length > 1;
+}
+
+function rememberedWechatUser() {
+    try {
+        var raw = localStorage.getItem(WECHAT_USER_STORAGE_KEY);
+        var id = parseInt(raw, 10);
+        return isFinite(id) && id >= 0 ? id : null;
+    } catch (e) { return null; }
+}
+
+function rememberWechatUser(userId) {
+    try { localStorage.setItem(WECHAT_USER_STORAGE_KEY, String(parseInt(userId, 10))); } catch (e) { /* ignore */ }
+}
+
+async function checkWechatUserInstalled(userId) {
+    try {
+        var out = await runCommand(CMD.checkWechatUser(userId), { timeout: 8000 });
+        return hasSentinel(out, '__INSTALLED__');
+    } catch (e) {
+        return false;
+    }
+}
+
+async function loadWechatTargets() {
+    var usersOut = '';
+    try {
+        usersOut = await runCommand(CMD.listUsers(), { timeout: 12000 });
+    } catch (e) {
+        return { ok: false, targets: [], error: e && e.message ? e.message : '读取用户失败' };
+    }
+    if (!usersOut || String(usersOut).indexOf('Error:') === 0) {
+        return { ok: false, targets: [], error: '读取用户失败' };
+    }
+    var userIds = parseUserIdsFromOutput(usersOut);
+    if (!userIds.length) return { ok: false, targets: [], error: '未解析到用户' };
+    var installed = [];
+    for (var i = 0; i < userIds.length; i++) {
+        if (await checkWechatUserInstalled(userIds[i])) installed.push(userIds[i]);
+    }
+    return { ok: true, targets: parseWechatTargets(usersOut, installed) };
+}
+
+function selectedWechatTarget() {
+    var targets = APP.paid.wechatTargets || [];
+    if (!targets.length) return null;
+    var selected = APP.paid.wechatSelected;
+    for (var i = 0; i < targets.length; i++) {
+        if (targets[i].userId === selected) return targets[i];
+    }
+    return targets[0];
+}
+
+function renderWechatSelector() {
+    var node = $('payment-wechat-selector');
+    if (!node) return;
+    var targets = APP.paid.wechatTargets || [];
+    if (!shouldShowWechatSelector(targets)) {
+        node.hidden = true;
+        node.innerHTML = '';
+        return;
+    }
+    var selected = selectedWechatTarget();
+    var selectedId = selected ? selected.userId : null;
+    node.hidden = false;
+    var html = '<div class="payment-wechat-title">支付微信</div><div class="payment-wechat-users" role="group" aria-label="支付微信实例">';
+    targets.forEach(function (target) {
+        html += '<button type="button" class="payment-wechat-user' + (target.userId === selectedId ? ' active' : '') +
+            '" data-wechat-user="' + target.userId + '">' +
+            '<span class="payment-wechat-name">' + escapeHtml(target.label) + '</span>' +
+            '<span class="payment-wechat-uid">用户 ' + target.userId + '</span></button>';
+    });
+    html += '</div>';
+    node.innerHTML = html;
+    node.querySelectorAll('[data-wechat-user]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var id = parseInt(btn.dataset.wechatUser, 10);
+            if (!isFinite(id)) return;
+            APP.paid.wechatSelected = id;
+            rememberWechatUser(id);
+            renderWechatSelector();
+            updatePaymentActionsForOrder(APP.paid.order);
+        });
+    });
+}
+
+function updatePaymentActionsForOrder(order) {
+    order = order || APP.paid.order || {};
+    var kind = paymentMethodKind(order.payment_method);
+    var amount = formatPayAmount(order.pay_amount);
+    var actions = [{ label: '关闭', className: 'btn-secondary', onClick: closePaymentOverlay }];
+    if (kind === 'alipay') {
+        actions.push({ label: '打开支付宝 · ¥' + amount, className: 'btn-primary', onClick: function () { launchPaymentApp('alipay'); } });
+    } else {
+        var targets = APP.paid.wechatTargets || [];
+        var target = selectedWechatTarget();
+        if (!targets.length) {
+            actions.push({ label: '未检测到微信，请扫码支付', className: 'btn-secondary', disabled: true });
+        } else {
+            actions.push({
+                label: '打开' + (target ? target.label : '微信支付') + ' · ¥' + amount,
+                className: 'btn-primary',
+                onClick: function () { launchPaymentApp('wechat'); }
+            });
+        }
+    }
+    if (APP.isMock) {
+        actions.push({ label: '模拟支付成功', className: 'btn-secondary', onClick: function () { mockForcePaymentSuccess(); } });
+    }
+    renderPaymentActions(actions);
+}
+
+async function discoverWechatForPayment(order) {
+    APP.paid.wechatGeneration = (APP.paid.wechatGeneration || 0) + 1;
+    var generation = APP.paid.wechatGeneration;
+    renderPaymentActions([{ label: '关闭', className: 'btn-secondary', onClick: closePaymentOverlay },
+        { label: '检测微信实例…', className: 'btn-primary', disabled: true }]);
+    var result = await loadWechatTargets();
+    if (generation !== APP.paid.wechatGeneration) return;
+    if (!APP.paid.order || !order || APP.paid.order.order_no !== order.order_no) return;
+    APP.paid.wechatTargets = result.targets || [];
+    var remembered = rememberedWechatUser();
+    var selected = null;
+    APP.paid.wechatTargets.forEach(function (target) {
+        if (remembered !== null && target.userId === remembered) selected = target.userId;
+    });
+    if (selected === null && APP.paid.wechatTargets.length) selected = APP.paid.wechatTargets[0].userId;
+    APP.paid.wechatSelected = selected;
+    renderWechatSelector();
+    updatePaymentActionsForOrder(order);
+}
+
+function renderPaymentOrder(order) {
+    order = order || APP.paid.order || {};
+    var kind = paymentMethodKind(order.payment_method || (APP.paid.purchase && APP.paid.purchase.selectedMethod));
+    var methodText = paymentMethodLabel(order.payment_method);
+    var amount = formatPayAmount(order.pay_amount);
+    APP.paid.wechatTargets = [];
+    APP.paid.wechatSelected = null;
+    var html = '<div class="payment-price-row">' +
+        '<span class="payment-price" id="payment-amount"><small>¥</small>' + escapeHtml(amount) + '</span>' +
+        '<span class="payment-permanent">单机永久 · 一机一码</span></div>';
+    html += '<p class="payment-amount-warn">系统唯一金额，请按此金额支付，多付/少付无法自动发卡</p>';
+    html += '<div class="payment-order-meta">' +
+        '<div class="payment-order-line"><span>支付方式</span><strong>' + escapeHtml(methodText) + '</strong></div>' +
+        '<div class="payment-order-line"><span>订单号</span><strong>' + escapeHtml(order.order_no || '—') + '</strong></div>' +
+        '<div class="payment-order-line"><span>有效期</span><strong>' + escapeHtml(order.expired_at || '以服务端为准') + '</strong></div>' +
+        '</div>';
+    if (kind === 'wechat') {
+        html += '<div id="payment-wechat-selector" class="payment-wechat-selector" hidden></div>';
+    }
+    html += '<div class="payment-qr-wrap"><img class="payment-qr" id="payment-qr" src="' + escapeHtml(paymentQrSrc(kind)) + '" alt="' + escapeHtml(methodText) + '收款码"></div>';
+    html += '<div id="payment-live-status" class="payment-live-status"><span class="payment-spinner"></span><span id="payment-live-text">等待到账，页面会自动确认并发放卡密</span></div>';
+    var body = $('payment-body');
+    if (body) body.innerHTML = html;
+    setText('payment-title', '等待支付');
+    if (kind === 'wechat') {
+        discoverWechatForPayment(order);
+    } else {
+        updatePaymentActionsForOrder(order);
+    }
+}
+
+function renderPaymentActions(actions) {
+    var node = $('payment-actions');
+    if (!node) return;
+    node.innerHTML = '';
+    (actions || []).forEach(function (action) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn ' + (action.className || 'btn-secondary');
+        btn.textContent = action.label || '确定';
+        if (action.disabled) btn.disabled = true;
+        btn.addEventListener('click', function () { if (action.onClick && !action.disabled) action.onClick(); });
+        node.appendChild(btn);
+    });
+}
+
+function launchPaymentApp(kind) {
+    var normalized = kind === 'alipay' ? 'alipay' : 'wechat';
+    var cmd;
+    var label;
+    if (normalized === 'alipay') {
+        cmd = CMD.payAlipay();
+        label = '支付宝';
+    } else {
+        var target = selectedWechatTarget();
+        if (!target) {
+            toast('未检测到微信实例，请扫描上方二维码支付', 'warn', 3200);
+            return;
+        }
+        cmd = CMD.payWechat(target.userId);
+        label = target.label;
+    }
+    runCommand(cmd, { timeout: 20000 }).then(function (out) {
+        if (hasSentinel(out, '__OPEN_OK__')) toast('已尝试拉起' + label, 'ok', 2200);
+        else toast('无法启动' + label + '付款，请扫描上方二维码', 'warn', 3200);
+    }).catch(function () {
+        toast('拉起支付 App 失败，请扫描上方二维码', 'warn', 3200);
+    });
+}
+
+function mockForcePaymentSuccess() {
+    if (!APP.isMock) return;
+    var st = mockPaidState();
+    st.orderPolls = 9;
+    checkPaidOrder();
+}
+
+function startPaymentPolling() {
+    stopPaymentPolling();
     APP.paid.polling = true;
     APP.paid.pollCount = 0;
     checkPaidOrder();
     APP.paid.pollTimer = setInterval(function () {
         if (!APP.paid.polling) return;
         APP.paid.pollCount = (APP.paid.pollCount || 0) + 1;
-        if (APP.paid.pollCount > 40) { stopPaidOrderPolling(); return; }
+        if (APP.paid.pollCount > 60) {
+            stopPaymentPolling();
+            setPaymentLiveStatus('订单长时间未到账，请检查后重新购买', 'error');
+            return;
+        }
         checkPaidOrder();
     }, 3000);
 }
 
-function stopPaidOrderPolling() {
+function stopPaymentPolling() {
     APP.paid.polling = false;
     if (APP.paid.pollTimer) { clearInterval(APP.paid.pollTimer); APP.paid.pollTimer = null; }
 }
@@ -2508,32 +3068,99 @@ async function checkPaidOrder() {
         var status = String(data.status || 'pending').toLowerCase();
         order.status = status;
         if (status === 'paid') {
-            stopPaidOrderPolling();
+            stopPaymentPolling();
             var cardKey = String((data.payment_data && data.payment_data.card_key) || data.card_key || '');
             try { sessionStorage.removeItem('gt8_paid_order_v1'); } catch (e) { /* ignore */ }
-            await refreshServerEntitlement();
-            await refreshLease(true);
-            await refreshPaidState({ silent: true });
-            showPaidOverlay('支付成功', '<div class="paid-success">授权已发放并绑定本机。</div>' +
-                (cardKey ? '<div class="paid-license-key">' + escapeHtml(cardKey) + '</div>' : '') +
-                '<p class="paid-hint">正在检查付费组件；可在「下载付费组件」中安装最新版本。</p>', [
-                { label: '完成', className: 'btn-primary', onClick: closePaidOverlay }
-            ]);
-            toast('支付成功，授权已到账', 'ok', 3600);
+            setPaymentSyncStatus('支付成功，授权已到账，正在获取租约…');
+            var syncResult = await syncPaidAuthorization({ payment: true });
+            try { await refreshStatus(); } catch (e2) { /* 静默 */ }
+            renderPaymentSuccess(cardKey, syncResult);
             renderPaidPage();
         } else if (status === 'expired' || status === 'cancelled' || status === 'delivery_failed') {
-            stopPaidOrderPolling();
-            var msg = status === 'expired' ? '订单已超时，请重新下单' : status === 'cancelled' ? '订单已取消' : '支付已确认，但卡密交付失败';
-            setText('paid-pay-status', msg);
-            toast(msg, 'err', 4200);
+            stopPaymentPolling();
+            renderPaymentFailure(status);
+            toast('支付未完成', 'err', 3200);
         } else {
-            setText('paid-pay-status', '等待支付到账…');
+            setPaymentLiveStatus('等待到账，页面会自动确认并发放卡密');
         }
     } catch (e) {
-        setText('paid-pay-status', '网络暂时不可用，正在自动重试');
+        setPaymentLiveStatus('网络暂时不可用，正在自动重试');
     } finally {
         APP.paid.orderChecking = false;
     }
+}
+
+function copyTextToClipboard(text) {
+    var value = String(text || '');
+    if (!value) return;
+    var fallback = function () {
+        try {
+            var area = document.createElement('textarea');
+            area.value = value;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            document.body.removeChild(area);
+            toast('卡密已复制', 'ok', 2200);
+        } catch (e) {
+            toast('复制失败，请长按卡密手动复制', 'warn', 3000);
+        }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(function () { toast('卡密已复制', 'ok', 2200); }, fallback);
+    } else {
+        fallback();
+    }
+}
+
+function renderPaymentSuccess(cardKey, syncResult) {
+    syncResult = syncResult || {};
+    setText('payment-title', '支付成功');
+    var auth = APP.paid.auth || {};
+    var days = Number(auth.lease_days_left || 0);
+    var last4 = auth.license_last4 || (APP.paid.licenseMeta && APP.paid.licenseMeta.key_last4) || '';
+    var statusText = syncResult.ok
+        ? ('已绑定本机 · 租约剩余 ' + days + ' 天' + (last4 ? ' · 卡密尾号 ' + last4 : ''))
+        : '授权已到账，正在获取租约…（会自动重试，也可点「刷新授权」）';
+    var keyHtml = '<div class="payment-license-row"><code id="payment-card-key" class="payment-license-key">' +
+        escapeHtml(cardKey || '卡密已绑定到当前账号') + '</code>' +
+        (cardKey ? '<button type="button" class="btn btn-small btn-secondary" data-copy-card>复制</button>' : '') +
+        '</div>';
+    var html = '<div class="payment-success-hero"><span class="payment-check">✓</span>' +
+        '<span class="payment-success-title">授权已发放并绑定本机</span></div>' +
+        keyHtml + '<p class="payment-hint">' + escapeHtml(statusText) + '；购买入口已隐藏，可在「我的」中下载付费组件。</p>';
+    var body = $('payment-body');
+    if (body) body.innerHTML = html;
+    var copyBtn = body && body.querySelector('[data-copy-card]');
+    if (copyBtn) copyBtn.addEventListener('click', function () { copyTextToClipboard(cardKey); });
+    var actions = [];
+    if (cardKey) actions.push({ label: '复制卡密', className: 'btn-secondary', onClick: function () { copyTextToClipboard(cardKey); } });
+    if (!syncResult.ok) actions.push({ label: '刷新授权', className: 'btn-secondary', onClick: function () {
+        syncPaidAuthorization({ payment: true }).then(function (next) { renderPaymentSuccess(cardKey, next); });
+    } });
+    actions.push({ label: '完成', className: 'btn-primary', onClick: function () {
+        closePaymentOverlay();
+        renderPaidPage();
+    } });
+    renderPaymentActions(actions);
+}
+
+function renderPaymentFailure(status) {
+    setText('payment-title', '支付未完成');
+    var reason = status === 'expired' ? '订单已超时' : status === 'cancelled' ? '订单已取消' : '支付已确认，但卡密交付失败';
+    var html = '<p class="payment-hint">' + escapeHtml(reason) + '，未发放授权。</p>';
+    var body = $('payment-body');
+    if (body) body.innerHTML = html;
+    renderPaymentActions([
+        { label: '关闭', className: 'btn-secondary', onClick: closePaymentOverlay },
+        { label: '重新购买', className: 'btn-primary', onClick: function () {
+            closePaymentOverlay();
+            APP.paid.order = null;
+            showPurchaseOverlay();
+        } }
+    ]);
 }
 
 /* ---------- 我的卡密 / 订单 / 下载组件 ---------- */
@@ -2547,19 +3174,69 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
+/* ---------- 我的卡密（v5.8：仅展示，无解绑/删除按钮） ---------- */
+function licenseStatusLabel(status) {
+    var value = String(status || '').toLowerCase();
+    if (value === 'active') return '已激活';
+    if (value === 'unused' || value === 'not_used' || value === 'available' || value === 'unbound') return '未使用';
+    if (value === 'revoked') return '已吊销';
+    if (value === 'disabled') return '已禁用';
+    if (value === 'expired') return '已过期';
+    return status ? String(status) : '未知';
+}
+
+function maskCardNumber(item) {
+    var full = String((item && (item.card_key || item.key || item.card)) || '');
+    if (full) {
+        var parts = full.split('-');
+        if (parts.length >= 4) return parts.slice(0, 2).join('-') + '-****-' + parts[parts.length - 1];
+        return full.length > 8 ? full.slice(0, 4) + '****' + full.slice(-4) : full;
+    }
+    var last4 = String((item && (item.key_last4 || item.license_last4)) || '');
+    return last4 ? 'MTC-****-****-' + last4 : '—';
+}
+
 async function showMyLicenses() {
     if (!paidLoggedIn()) { showLoginOverlay(); return; }
-    showPaidOverlay('我的卡密', '<p class="paid-hint">正在读取…</p>', [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
+    showPaidOverlay('我的卡密', '<p class="paid-hint">正在读取…</p>', [
+        { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }
+    ]);
     try {
         var resp = await paidApi('GET', 'v1/touch/licenses', { auth: true });
         APP.paid.licenses = paidArray(paidData(resp), 'licenses');
-        paidListOverlay('我的卡密', APP.paid.licenses, function (item) {
-            var last4 = item.key_last4 || (item.card_key ? String(item.card_key).slice(-4) : '—');
-            return '<strong>' + escapeHtml('尾号 ' + last4) + '</strong><small>' +
-                escapeHtml((item.status || 'unknown') + (item.device_model ? ' · ' + item.device_model : '')) + '</small>';
-        }, '暂无卡密，购买授权后会自动发放');
+        var html = '<div class="paid-license-list">';
+        if (!APP.paid.licenses.length) html += '<p class="paid-hint">暂无卡密，购买授权后会自动发放</p>';
+        APP.paid.licenses.forEach(function (item) {
+            var status = String(item.status || '').toLowerCase();
+            var tagClass = status === 'active' ? 'ok' : (status === 'revoked' || status === 'disabled' ? 'err' : '');
+            var meta = [];
+            if (item.device_model || (item.device && item.device.model)) meta.push('绑定设备 ' + String(item.device_model || item.device.model));
+            if (item.bound_at || item.created_at) meta.push('时间 ' + formatLeaseExpiry(item.bound_at || item.created_at));
+            html += '<div class="paid-license-item">' +
+                '<div class="paid-license-head"><strong>' + escapeHtml(maskCardNumber(item)) + '</strong>' +
+                '<span class="paid-tag ' + tagClass + '">' + escapeHtml(licenseStatusLabel(item.status)) + '</span></div>' +
+                '<div class="paid-license-meta">' + (meta.length ? escapeHtml(meta.join(' · ')) : '未绑定设备') + '</div>' +
+                '</div>';
+        });
+        html += '</div>';
+        setPaidOverlayBody(html);
+        var actionsNode = $('paid-overlay-actions');
+        if (actionsNode) {
+            actionsNode.innerHTML = '';
+            [{ label: '刷新', className: 'btn-secondary', onClick: showMyLicenses },
+             { label: '关闭', className: 'btn-primary', onClick: closePaidOverlay }].forEach(function (action) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn ' + action.className;
+                btn.textContent = action.label;
+                btn.addEventListener('click', action.onClick);
+                actionsNode.appendChild(btn);
+            });
+        }
     } catch (e) {
-        showPaidOverlay('我的卡密', '<p class="paid-hint">读取失败：' + escapeHtml(e && e.message ? e.message : e) + '</p>', [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
+        showPaidOverlay('我的卡密', '<p class="paid-hint">读取失败：' + escapeHtml(e && e.message ? e.message : e) + '</p>', [
+            { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }
+        ]);
     }
 }
 
@@ -2655,13 +3332,217 @@ async function paidAutoMaintenance() {
     try {
         if (!paidLoggedIn()) return;
         await paidValidateToken();
-        await ensureLeaseFresh(true);
         await refreshPaidState({ silent: true });
-        await refreshServerEntitlement();
-        await refreshPaidState({ silent: true });
+        var a = APP.paid.auth || {};
+        var remaining = Number(a.lease_remaining_seconds || 0);
+        if ((a.entitlement === 'active' || a.entitlement === 'grace') && (a.lease_valid !== 1 || remaining < PAID_LEASE_RENEW_SECONDS)) {
+            await syncPaidAuthorization({ silent: true });
+        } else {
+            await refreshServerEntitlement();
+            await refreshPaidState({ silent: true });
+        }
     } catch (e) { /* 静默 */ }
 }
 
+/* ---------- 关于二级页（1:1 照慕容调度 AboutMiuix） ---------- */
+var ABOUT_WEBSITE_URL = 'https://murongdiaodu.rl1.cc/';
+var ABOUT_REPO_URL = 'https://github.com/mongruyan/murongtouch';
+var ABOUT_TUTORIAL_URL = 'https://murongdiaodu.rl1.cc/docs.html';
+var ABOUT_COOLAPK_DEEPLINK = 'coolmarket://u/5037694';
+var ABOUT_COOLAPK_FALLBACK = 'https://www.coolapk.com/u/5037694';
+var ABOUT_QQ_URL = 'mqqapi://card/show_pslcard?src_type=internal&version=1&uin=974835379&card_type=group&source=qrcode';
+var ABOUT_QQ_NUMBER = '974835379';
+var ABOUT_TRAFFIC_URL = 'https://h5.lot-ml.com/ProductEn/Index/beb66e222fcdb4b6';
+var ABOUT_DONATE_URL = 'https://qr.alipay.com/fkx19856muvtznqt6onipea';
+var ABOUT_UPDATE_JSON_URL = 'https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json';
+var ABOUT_UPDATE_SOURCES = [
+    'https://cdn.jsdelivr.net/gh/mongruyan/murongtouch@main/update.json',
+    'https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json',
+    'https://ghproxy.net/https://raw.githubusercontent.com/mongruyan/murongtouch/main/update.json'
+];
+var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
+var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
+var ABOUT_RELEASES_URL = 'https://github.com/mongruyan/murongtouch/releases';
+var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
+var ABOUT_VERSION = 'v5.8.0';
+
+function openExternalUrl(url) {
+    return new Promise(function (resolve) {
+        var target = String(url || '').trim();
+        if (!target) { resolve(false); return; }
+        if (isMockMode()) {
+            toast('预览模式：正式版将用 root am start 打开 ' + target, 'info', 2600);
+            resolve(true);
+            return;
+        }
+        runCommand(CMD.openUrl(target), { timeout: 15000 }).then(function (out) {
+            resolve(hasSentinel(out, '__OPEN_OK__'));
+        }).catch(function () { resolve(false); });
+    });
+}
+
+function openAboutLink(url, failMessage, fallbackUrl) {
+    openExternalUrl(url).then(function (ok) {
+        if (ok) return;
+        if (fallbackUrl) {
+            openExternalUrl(fallbackUrl).then(function (fallbackOk) {
+                if (!fallbackOk) toast(failMessage || '无法打开链接', 'warn', 3200);
+            });
+        } else {
+            toast(failMessage || '无法打开链接', 'warn', 3200);
+        }
+    });
+}
+
+function openAboutPage() {
+    var page = $('about-page');
+    if (!page) return;
+    loadAboutInfo();
+    page.hidden = false;
+    page.scrollTop = 0;
+    if (document.body) document.body.classList.add('subpage-open');
+    checkAboutUpdate(false);
+}
+
+function closeAboutPage() {
+    var page = $('about-page');
+    if (page) page.hidden = true;
+    if (document.body) document.body.classList.remove('subpage-open');
+}
+
+async function loadAboutInfo() {
+    var version = WEBUI_VERSION;
+    var name = '慕容触控采样率';
+    try {
+        var out = await runCommand(CMD.moduleProp(), { timeout: 12000 });
+        var versionMatch = String(out || '').match(/^version=(.+)$/m);
+        var nameMatch = String(out || '').match(/^name=(.+)$/m);
+        if (versionMatch) version = versionMatch[1].trim();
+        if (nameMatch) name = nameMatch[1].trim();
+    } catch (e) { /* 使用内置版本 */ }
+    ABOUT_VERSION = version;
+    setText('about-name', name || '慕容触控采样率');
+    setText('about-version', '版本 ' + version);
+    setText('about-author', '开发者：' + ABOUT_AUTHOR);
+    setText('about-update-text', '当前 ' + version + ' · 点击检查更新');
+}
+
+function compareVersionStrings(a, b) {
+    var pa = String(a || '').replace(/^v/i, '').split(/[.\-+]/).map(function (part) { return parseInt(part, 10) || 0; });
+    var pb = String(b || '').replace(/^v/i, '').split(/[.\-+]/).map(function (part) { return parseInt(part, 10) || 0; });
+    var length = Math.max(pa.length, pb.length);
+    for (var i = 0; i < length; i++) {
+        var left = pa[i] || 0;
+        var right = pb[i] || 0;
+        if (left !== right) return left > right ? 1 : -1;
+    }
+    return 0;
+}
+
+function aboutReleaseUrl(info) {
+    info = info || {};
+    var latest = String(info.latest || info.version || '').replace(/^v/i, '');
+    var tag = String(info.tag_name || info.tag || (latest ? 'v' + latest : ''));
+    if (!tag) return ABOUT_RELEASES_URL;
+    return ABOUT_RELEASES_URL + '/tag/' + encodeURIComponent(tag);
+}
+
+function readAboutUpdateCache() {
+    try {
+        var raw = localStorage.getItem(ABOUT_UPDATE_CACHE_KEY);
+        if (!raw) return null;
+        var data = JSON.parse(raw);
+        if (!data || !data.ts || !data.latest) return null;
+        if (Date.now() - Number(data.ts) > ABOUT_UPDATE_CACHE_TTL) return null;
+        return data;
+    } catch (e) { return null; }
+}
+
+function writeAboutUpdateCache(info) {
+    try {
+        localStorage.setItem(ABOUT_UPDATE_CACHE_KEY, JSON.stringify({
+            ts: Date.now(),
+            latest: String((info && info.latest) || ''),
+            tag_name: String((info && info.tag_name) || '')
+        }));
+    } catch (e) { /* ignore */ }
+}
+
+function applyAboutUpdateText(current, latest, stale) {
+    var text = '当前 ' + current + ' · ';
+    if (!latest) {
+        text += '点击检查更新（需联网）';
+    } else if (compareVersionStrings(latest, current) > 0) {
+        text += '发现 v' + latest;
+    } else {
+        text += '已是最新';
+    }
+    setText('about-update-text', text);
+}
+
+async function checkAboutUpdate(openReleases, options) {
+    options = options || {};
+    var current = ABOUT_VERSION || WEBUI_VERSION;
+    var cached = readAboutUpdateCache();
+    if (cached && !options.force) {
+        applyAboutUpdateText(current, cached.latest, false);
+        if (openReleases) openAboutLink(aboutReleaseUrl(cached), '无法打开更新发布页');
+        return { ok: true, latest: cached.latest, cached: true };
+    }
+    setText('about-update-text', '当前 ' + current + ' · 正在检查更新…');
+    var latest = '';
+    var tagName = '';
+    var htmlUrl = '';
+    for (var i = 0; i < ABOUT_UPDATE_SOURCES.length; i++) {
+        try {
+            var raw = String(await runCommand(CMD.updateCheck(ABOUT_UPDATE_SOURCES[i]), { timeout: 12000 }) || '').trim();
+            if (!raw || raw.indexOf('__UPDATE_FAIL__') >= 0 || raw.indexOf('Error:') === 0) continue;
+            var data = JSON.parse(raw);
+            latest = String(data.version || data.latest_version || data.latestVersion || data.tag_name || data.tag || '').replace(/^v/i, '');
+            tagName = String(data.tag_name || data.tag || '');
+            htmlUrl = String(data.html_url || '');
+            if (latest) break;
+        } catch (e) { /* 尝试下一个源 */ }
+    }
+    if (!latest) {
+        /* 全部失败：静默降级，不弹失败 toast；点击仍打开 releases 页 */
+        applyAboutUpdateText(current, '', true);
+        if (openReleases) openAboutLink(ABOUT_RELEASES_URL, '无法打开更新发布页');
+        return { ok: false, latest: '' };
+    }
+    writeAboutUpdateCache({ latest: latest, tag_name: tagName });
+    applyAboutUpdateText(current, latest, false);
+    var hasNewer = compareVersionStrings(latest, current) > 0;
+    if (hasNewer) toast('发现新版本 v' + latest, 'info', 3000);
+    if (openReleases) {
+        var releaseUrl = htmlUrl && htmlUrl.indexOf('/releases') >= 0 ? htmlUrl : aboutReleaseUrl({ latest: latest, tag_name: tagName });
+        openAboutLink(releaseUrl, '无法打开更新发布页');
+    }
+    return { ok: true, latest: latest, newer: hasNewer };
+}
+
+function bindAboutControls() {
+    var back = $('btn-about-back');
+    if (back) back.addEventListener('click', closeAboutPage);
+    var page = $('about-page');
+    if (!page) return;
+    page.addEventListener('click', function (event) {
+        var node = event.target;
+        while (node && node !== page && !(node.dataset && node.dataset.aboutAction)) node = node.parentNode;
+        if (!node || node === page || !node.dataset) return;
+        var action = node.dataset.aboutAction;
+        if (action === 'website') openAboutLink(ABOUT_WEBSITE_URL, '无法打开官方网站');
+        else if (action === 'repo') openAboutLink(ABOUT_REPO_URL, '无法打开开源仓库');
+        else if (action === 'tutorial') openAboutLink(ABOUT_TUTORIAL_URL, '无法打开使用教程');
+        else if (action === 'coolapk') openAboutLink(ABOUT_COOLAPK_DEEPLINK, '无法打开酷安主页', ABOUT_COOLAPK_FALLBACK);
+        else if (action === 'qq') openAboutLink(ABOUT_QQ_URL, '无法打开 QQ 群，请加入 QQ 群：' + ABOUT_QQ_NUMBER);
+        else if (action === 'traffic') openAboutLink(ABOUT_TRAFFIC_URL, '无法打开流量卡页面');
+        else if (action === 'donate') openAboutLink(ABOUT_DONATE_URL, '无法打开打赏页面');
+        else if (action === 'update') checkAboutUpdate(true, { force: true });
+    });
+}
+
+/* ---------- Mock 付费后端 ---------- */
 /* ---------- Mock 付费后端 ---------- */
 function mockPaidState() {
     if (!MOCK.paid) {
@@ -2670,6 +3551,8 @@ function mockPaidState() {
             entitlement: 'unknown',
             licenseLast4: '',
             deviceBound: 0,
+            licenseId: '',
+            bindingId: '',
             lease: null,
             orders: [],
             orderPolls: 0,
@@ -2685,24 +3568,34 @@ function mockPaidState() {
 }
 
 function mockLeaseObject() {
-    var expires = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
+    var issued = Math.floor(Date.now() / 1000);
+    var expires = issued + 3 * 24 * 3600;
+    var grace = issued + 6 * 24 * 3600;
     return {
-        scope: 'touch.sampling',
+        algorithm: 'Ed25519',
         key_id: 'display-lease-2026-08-prod',
-        expires_at: expires,
-        features: ['touch_sampling'],
-        device_id_hash: 'mock-device-hash',
-        signature: 'mock-signature'
+        claims: {
+            scope: 'touch.sampling', license_id: 2, binding_id: 2, user_id: 3,
+            device_id_hash: 'mock-device-hash', features: ['touch_sampling'],
+            issued_at: issued, expires_at: expires, grace_until: grace,
+            key_id: 'display-lease-2026-08-prod', nonce: 'mock-nonce'
+        },
+        payload: 'bW9jay1sZWFzZQ',
+        signature: 'bW9jay1zaWc'
     };
 }
 
 function mockPaidAccountJson() {
     var st = mockPaidState();
     var lease = st.lease || {};
+    var claims = lease.claims || {};
+    var leaseExpires = claims.expires_at || lease.expires_at || '';
+    var leaseFeatures = claims.features || lease.features || [];
     var remaining = 0;
     var days = 0;
-    if (lease.expires_at) {
-        remaining = Math.max(0, Math.floor((Date.parse(lease.expires_at) - Date.now()) / 1000));
+    var leaseExpiresMs = dateTimeToMillis(leaseExpires);
+    if (leaseExpiresMs) {
+        remaining = Math.max(0, Math.floor((leaseExpiresMs - Date.now()) / 1000));
         days = Math.ceil(remaining / 86400);
     }
     return {
@@ -2714,11 +3607,13 @@ function mockPaidAccountJson() {
         entitlement: st.entitlement,
         license_last4: st.licenseLast4,
         device_bound: st.deviceBound ? 1 : 0,
-        lease_expires_at: lease.expires_at || '',
+        lease_expires_at: leaseExpires,
         lease_remaining_seconds: remaining,
         lease_days_left: days,
         lease_valid: remaining > 0 ? 1 : 0,
-        features: lease.features || [],
+        features: leaseFeatures,
+        license_id: st.licenseId || '',
+        binding_id: st.bindingId || '',
         device_id: 'mock-device-id',
         device_model: 'RMX5200',
         premium_installed: st.premium.installed ? 1 : 0,
@@ -2737,7 +3632,7 @@ function mockPaidExec(cmd) {
         return Promise.resolve(JSON.stringify({
             success: true, device_id: 'mock-device-id', sn: 'MOCK-SN-0001', imei1: '000000000000001',
             imei2: '000000000000002', device_id_hash: 'mock-device-hash', device_model: 'RMX5200',
-            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.0', kernel: '6.1.0'
+            soc_model: 'SM8850', build_fingerprint: 'realme/RMX5200/mock:17', base_version: 'v5.8', kernel: '6.1.0'
         }));
     }
     if (action === 'premium_state') {
@@ -2771,6 +3666,8 @@ function mockPaidExec(cmd) {
             st.entitlement = payload.entitlement || 'unknown';
             st.licenseLast4 = payload.license_last4 || '';
             st.deviceBound = payload.device_bound ? 1 : 0;
+            st.licenseId = payload.license_id || st.licenseId || '';
+            st.bindingId = payload.binding_id || st.bindingId || '';
         }
         return Promise.resolve('{"success":true}');
     }
@@ -2789,11 +3686,11 @@ function mockPaidExec(cmd) {
         }));
     }
     if (action === 'api_request') {
-        var methodMatch = c.match(/api_request\s+(GET|POST)\s+"([^"]*)"/);
+        var methodMatch = c.match(/api_request\s+(GET|POST|DELETE)\s+"([^"]*)"/);
         var method = methodMatch ? methodMatch[1] : 'GET';
         var path = methodMatch ? methodMatch[2] : '';
         var payloadB64 = '';
-        var pb = c.match(/"(GET|POST)"\s+"[^"]*"\s+[01]\s+"([^"]*)"/);
+        var pb = c.match(/"(GET|POST|DELETE)"\s+"[^"]*"\s+[01]\s+"([^"]*)"/);
         if (pb) payloadB64 = pb[2];
         var body = '';
         try { body = payloadB64 ? b64urlDecode(payloadB64) : ''; } catch (e) { body = ''; }
@@ -2830,7 +3727,7 @@ function mockPaidExec(cmd) {
                 order_no: 'MOCK' + Date.now().toString().slice(-8),
                 order_access_token: 'mock-order-token',
                 payment_url: 'https://murongdiaodu.rl1.cc/pay/mock',
-                pay_amount: 3, status: 'pending', product_name: '慕容触控采样率 授权'
+                pay_amount: 3.03, expired_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), status: 'pending', product_name: '慕容触控采样率 授权'
             };
             st.orders.push(order);
             st.orderPolls = 0;
@@ -2844,11 +3741,14 @@ function mockPaidExec(cmd) {
             if (st.orderPolls >= 2 && st.account.token) {
                 if (existing) existing.status = 'paid';
                 st.entitlement = 'active';
-                st.licenseLast4 = 'MOCK';
+                st.cardKey = 'MOCK-CARD-0000-0000-3V86';
+                st.licenseLast4 = '3V86';
                 st.deviceBound = 1;
+                st.licenseId = 2;
+                st.bindingId = 2;
                 st.lease = mockLeaseObject();
                 return Promise.resolve(JSON.stringify({ success: true, data: {
-                    status: 'paid', payment_data: { card_key: 'MOCK-CARD-0000-0000-0000' }
+                    status: 'paid', payment_data: { card_key: st.cardKey }
                 } }));
             }
             return Promise.resolve(JSON.stringify({ success: true, data: { status: 'pending' } }));
@@ -2859,6 +3759,7 @@ function mockPaidExec(cmd) {
         if (path.indexOf('v1/touch/entitlement') >= 0) {
             return Promise.resolve(JSON.stringify({ success: true, data: {
                 status: st.entitlement, license_last4: st.licenseLast4,
+                license_id: st.licenseId || 2, binding_id: st.bindingId || 2,
                 device_bound: !!st.deviceBound, features: st.entitlement === 'active' ? ['touch_sampling'] : []
             } }));
         }
@@ -2866,6 +3767,8 @@ function mockPaidExec(cmd) {
             st.entitlement = 'active';
             st.licenseLast4 = 'CARD';
             st.deviceBound = 1;
+            st.licenseId = 2;
+            st.bindingId = 2;
             st.lease = mockLeaseObject();
             return Promise.resolve(JSON.stringify({ success: true, data: {
                 license_id: 1, key_last4: 'CARD', features: ['touch_sampling']
@@ -2876,10 +3779,17 @@ function mockPaidExec(cmd) {
             return Promise.resolve(JSON.stringify({ success: true, data: st.lease }));
         }
         if (path.indexOf('v1/touch/licenses') >= 0) {
-            var list = st.licenseLast4 ? [{
-                key_last4: st.licenseLast4, status: st.entitlement,
-                device_model: 'RMX5200', bound_at: new Date().toISOString()
-            }] : [];
+            var list = [
+                { id: 1, key_last4: '4GK2', card_key: 'MTC-7UUB-ECWB-EJDT-4GK2', status: 'revoked', bound_at: '2026-10-23 11:28:55' }
+            ];
+            if (st.licenseLast4) {
+                list.unshift({
+                    id: 2, license_id: st.licenseId || 2, binding_id: st.bindingId || 2,
+                    key_last4: st.licenseLast4, card_key: st.cardKey || '', status: 'active',
+                    device: { device_id_hash: 'mock-device-hash' }, can_use_premium: true,
+                    device_model: 'RMX5200', bound_at: '2026-10-23 12:22:57'
+                });
+            }
             return Promise.resolve(JSON.stringify({ success: true, data: { licenses: list } }));
         }
         if (path.indexOf('v1/touch/packages/') >= 0 && path.indexOf('download-token') >= 0) {
@@ -3072,17 +3982,25 @@ function bindUserControls() {
                 var input = $('paid-card-key');
                 activatePaidCard(input ? input.value : '');
             } else if (action === 'renew-lease') renewPaidLease();
-            else if (action === 'refresh-auth') refreshServerEntitlement().then(function () { refreshPaidState({ silent: true }); toast('授权状态已刷新', 'ok'); });
+            else if (action === 'refresh-auth') syncPaidAuthorization({}).then(function (result) {
+                if (result && result.ok) toast('授权已刷新', 'ok');
+                else toast('授权已刷新，租约待同步：' + ((result && result.error) || '请稍后重试'), 'warn', 4200);
+            });
             else if (action === 'buy') showPurchaseOverlay();
-            else if (action === 'check-order') checkPaidOrder();
+            else if (action === 'check-order') {
+                if (APP.paid.order) {
+                    openPaymentOverlay();
+                    renderPaymentOrder(APP.paid.order);
+                    startPaymentPolling();
+                } else {
+                    toast('没有待确认的订单', 'warn');
+                }
+            }
             else if (action === 'licenses') showMyLicenses();
             else if (action === 'orders') showMyOrders();
             else if (action === 'download') downloadPremiumPackage();
-            else if (action === 'feedback') {
-                showPaidOverlay('反馈', '<p class="paid-hint">反馈请在酷安 @慕容雪绒（本入口仅文字说明，不跳转）。<br>反馈时请附：机型、系统版本、问题现象与日志页诊断包。</p>', [
-                    { label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }
-                ]);
-            } else if (action === 'mock-expire') {
+            else if (action === 'about') openAboutPage();
+            else if (action === 'mock-expire') {
                 var st = mockPaidState();
                 st.entitlement = 'expired';
                 st.lease = Object.assign({}, st.lease || mockLeaseObject(), { expires_at: new Date(Date.now() - 3600 * 1000).toISOString() });
@@ -3117,6 +4035,20 @@ function bindUserControls() {
             paidAutoMaintenance();
         }, PAID_REFRESH_MS);
     }
+}
+
+function bindPaymentControls() {
+    var overlay = $('payment-overlay');
+    if (!overlay) return;
+    overlay.addEventListener('click', function (event) {
+        var target = event.target;
+        if (target && target.dataset && (target.dataset.paymentClose || target.id === 'btn-payment-close')) {
+            closePaymentOverlay();
+        }
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && overlay && !overlay.hidden) closePaymentOverlay();
+    });
 }
 
 function bindModal() {
@@ -3154,12 +4086,14 @@ function init() {
     bindTabs();
     bindModal();
     bindAppearance();
+    bindAboutControls();
     bindAppRateSheet();
     bindBottomBar();
     bindBaseControls();
     bindConfigControls();
     bindLogControls();
     bindUserControls();
+    bindPaymentControls();
 
     switchTab(initialTab(), false);
     refreshStatus();
@@ -3266,12 +4200,59 @@ if (typeof window !== 'undefined') {
         paidPremiumText: paidPremiumText,
         paymentMethodName: paymentMethodName,
         formatPaidBytes: formatPaidBytes,
+        parseUserIdsFromOutput: parseUserIdsFromOutput,
+        wechatTargetLabel: wechatTargetLabel,
+        parseWechatTargets: parseWechatTargets,
+        shouldShowWechatSelector: shouldShowWechatSelector,
+        rememberedWechatUser: rememberedWechatUser,
+        rememberWechatUser: rememberWechatUser,
+        selectedWechatTarget: selectedWechatTarget,
+        loadWechatTargets: loadWechatTargets,
+        WECHAT_USER_STORAGE_KEY: WECHAT_USER_STORAGE_KEY,        dateTimeToMillis: dateTimeToMillis,
+        formatLeaseExpiry: formatLeaseExpiry,
+        maskCardNumber: maskCardNumber,
+        licenseStatusLabel: licenseStatusLabel,
+        aboutReleaseUrl: aboutReleaseUrl,
+        readAboutUpdateCache: readAboutUpdateCache,
+        writeAboutUpdateCache: writeAboutUpdateCache,
+        ABOUT_UPDATE_CACHE_KEY: ABOUT_UPDATE_CACHE_KEY,
+        ABOUT_UPDATE_CACHE_TTL: ABOUT_UPDATE_CACHE_TTL,
+        ABOUT_UPDATE_SOURCES: ABOUT_UPDATE_SOURCES,
+        compareVersionStrings: compareVersionStrings,
+        checkAboutUpdate: checkAboutUpdate,
+        normalizeSignedLease: normalizeSignedLease,
+        latestLicenseMeta: latestLicenseMeta,
+        refreshLicensesMeta: refreshLicensesMeta,
+        saveEntitlementCache: saveEntitlementCache,
+        syncPaidAuthorization: syncPaidAuthorization,
+        copyTextToClipboard: copyTextToClipboard,
+        paymentMethodKind: paymentMethodKind,
+        paymentMethodLabel: paymentMethodLabel,
+        formatPayAmount: formatPayAmount,
         mockPaidState: mockPaidState,
         mockPaidExec: mockPaidExec,
         refreshPaidState: refreshPaidState,
         loadPaidTab: loadPaidTab,
         updatePaidNotice: updatePaidNotice,
-        paidAutoMaintenance: paidAutoMaintenance,        simpleHash: simpleHash,
+        paidPurchaseVisible: paidPurchaseVisible,
+        paidStatusSummary: paidStatusSummary,
+        applyPurchaseVisibility: applyPurchaseVisibility,
+        openAboutPage: openAboutPage,
+        closeAboutPage: closeAboutPage,
+        bindAboutControls: bindAboutControls,
+        loadAboutInfo: loadAboutInfo,
+        ABOUT_AUTHOR: ABOUT_AUTHOR,
+        ABOUT_WEBSITE_URL: ABOUT_WEBSITE_URL,
+        ABOUT_REPO_URL: ABOUT_REPO_URL,
+        ABOUT_TUTORIAL_URL: ABOUT_TUTORIAL_URL,
+        ABOUT_COOLAPK_DEEPLINK: ABOUT_COOLAPK_DEEPLINK,
+        ABOUT_COOLAPK_FALLBACK: ABOUT_COOLAPK_FALLBACK,
+        ABOUT_QQ_URL: ABOUT_QQ_URL,
+        ABOUT_QQ_NUMBER: ABOUT_QQ_NUMBER,
+        ABOUT_TRAFFIC_URL: ABOUT_TRAFFIC_URL,
+        ABOUT_DONATE_URL: ABOUT_DONATE_URL,
+        ABOUT_UPDATE_JSON_URL: ABOUT_UPDATE_JSON_URL,
+        ABOUT_RELEASES_URL: ABOUT_RELEASES_URL,        paidAutoMaintenance: paidAutoMaintenance,        simpleHash: simpleHash,
         mockExec: mockExec,
         getMockState: function () { return mockState(); },
         getMockConfigText: function () { return MOCK.configText; },

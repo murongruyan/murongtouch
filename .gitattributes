@@ -13,6 +13,7 @@
 *.yml    text eol=lf
 *.yaml   text eol=lf
 *.py     text eol=lf
+*.hex    text eol=lf
 
 # 无扩展名的可执行文件（ELF）按二进制处理，避免换行转换破坏。
 module/bin/curl            binary

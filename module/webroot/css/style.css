@@ -2943,7 +2943,7 @@ body.subpage-open .app-footer {
 }
 
 /* ============================================================
- * 19. v5.0 付费用户页（账号 / 授权 / 购买 / 下载组件）
+ * 19. v5.1 付费用户页 / 关于页（账号 / 授权 / 购买 / 下载组件）
  * ============================================================ */
 .paid-placeholder {
     padding: 18px 16px;
@@ -3224,3 +3224,437 @@ body.subpage-open .app-footer {
     font-size: 13px;
     word-break: break-all;
 }
+/* ============================================================
+ * 20. v5.1 关于二级页（照慕容调度 AboutMiuix）
+ * ============================================================ */
+.about-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 20px 16px 10px;
+    text-align: center;
+}
+
+.about-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    margin-bottom: 12px;
+    border-radius: 24px;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.about-icon svg {
+    width: 58px;
+    height: 58px;
+}
+
+.about-name {
+    color: var(--accent);
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -.3px;
+}
+
+.about-version {
+    color: var(--row-sub);
+    font-size: 14px;
+}
+
+.about-author {
+    color: var(--row-sub);
+    font-size: 13px;
+}
+
+.about-note {
+    padding: 18px 10px 28px;
+    color: var(--row-sub);
+    font-size: 12px;
+    line-height: 1.7;
+    text-align: center;
+}
+
+/* 已授权时购买区整体隐藏（display:none 由 [hidden] 规则保证） */
+#paid-purchase-section[hidden],
+#paid-purchase-label[hidden] {
+    display: none !important;
+}
+/* ============================================================
+ * 21. v5.2 WebUI 内支付弹层（照显示模块 payment-sheet）
+ * ============================================================ */
+.payment-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.payment-overlay[hidden] {
+    display: none;
+}
+
+.payment-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .46);
+}
+
+.payment-sheet {
+    position: relative;
+    width: min(100%, 560px);
+    max-height: 90vh;
+    overflow-y: auto;
+    border-radius: 22px 22px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -10px 34px rgba(0, 0, 0, .24);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.payment-sheet-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--divider);
+}
+
+.payment-sheet-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.payment-kicker {
+    color: var(--row-sub);
+    font-size: 12px;
+}
+
+.payment-title {
+    color: var(--accent);
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.payment-body {
+    padding: 14px 16px;
+}
+
+.payment-price-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+    padding: 4px 0 2px;
+}
+
+.payment-price {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    color: var(--accent);
+    font-size: 44px;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.payment-price small {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.payment-permanent {
+    color: var(--row-sub);
+    font-size: 12px;
+}
+
+.payment-amount-warn {
+    padding: 8px 0 12px;
+    color: var(--danger);
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.payment-order-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0 10px;
+}
+
+.payment-order-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-top: 1px solid var(--divider);
+    color: var(--row-sub);
+    font-size: 13px;
+}
+
+.payment-order-line:first-child {
+    border-top: none;
+}
+
+.payment-order-line strong {
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-all;
+}
+
+.payment-qr-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 12px;
+}
+
+.payment-qr {
+    width: 200px;
+    height: 200px;
+    object-fit: contain;
+    padding: 8px;
+    border-radius: 14px;
+    background: #FFFFFF;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+
+.payment-live-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 22px;
+    padding: 4px 0 10px;
+    color: var(--row-sub);
+    font-size: 13px;
+    text-align: center;
+}
+
+.payment-live-status.success {
+    color: var(--ok);
+}
+
+.payment-live-status.error {
+    color: var(--danger);
+}
+
+.payment-spinner {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: payment-spin .9s linear infinite;
+}
+
+@keyframes payment-spin {
+    to { transform: rotate(360deg); }
+}
+
+.payment-actions {
+    display: flex;
+    gap: 8px;
+    padding: 6px 16px 18px;
+}
+
+.payment-actions .btn {
+    flex: 1;
+}
+
+.payment-success-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 18px 0 10px;
+    text-align: center;
+}
+
+.payment-success-hero .payment-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-size: 30px;
+    font-weight: 800;
+}
+
+.payment-success-title {
+    color: var(--accent);
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.payment-license-key {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    word-break: break-all;
+    text-align: center;
+}
+
+.payment-hint {
+    padding: 6px 0;
+    color: var(--row-sub);
+    font-size: 13px;
+    line-height: 1.55;
+    text-align: center;
+}
+
+@media (max-width: 360px) {
+    .payment-price {
+        font-size: 40px;
+    }
+
+    .payment-qr {
+        width: 176px;
+        height: 176px;
+    }
+}
+/* v5.3：微信支付实例选择 */
+.payment-wechat-selector {
+    padding: 2px 0 10px;
+}
+
+.payment-wechat-title {
+    margin-bottom: 6px;
+    color: var(--row-sub);
+    font-size: 12.5px;
+}
+
+.payment-wechat-users {
+    display: flex;
+    gap: 8px;
+}
+
+.payment-wechat-user {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+}
+
+.payment-wechat-user.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.payment-wechat-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.payment-wechat-uid {
+    color: var(--row-sub);
+    font-size: 11px;
+}
+/* v5.4：支付成功卡密可复制（避免 toast 遮挡） */
+.payment-license-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.payment-license-row .payment-license-key {
+    flex: 1;
+    margin-top: 0;
+    min-width: 0;
+}
+
+.payment-license-row .btn {
+    flex: none;
+    align-self: center;
+}
+/* v5.6：我的卡密列表（v5.7 起仅展示） */
+.paid-license-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.paid-license-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    background: var(--surface-2);
+}
+
+.paid-license-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.paid-license-head strong {
+    flex: 1;
+    min-width: 0;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+    word-break: break-all;
+}
+
+.paid-license-meta {
+    color: var(--row-sub);
+    font-size: 12.5px;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.paid-license-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.paid-license-actions .btn {
+    flex: 0 1 auto;
+}
+/* v5.7：关于页开发者说明 */
+.about-dev-note {
+    padding: 2px 18px 0;
+    color: var(--row-sub);
+    font-size: 12.5px;
+    line-height: 1.55;
+    text-align: center;
+}
+
+/* v5.8：检查更新多源/缓存（无样式变更） */

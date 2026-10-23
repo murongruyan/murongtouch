@@ -2,7 +2,7 @@
 # ============================================================
 # 慕容触控采样率 v5.0 · 设备端 API 桥（WebUI -> 后端）
 # 用法（stdout 单行 JSON；失败返回 {"success":false,"message":"..."}）：
-#   api.sh api_request <GET|POST> <path> <auth 0/1> <payload_b64> <nonce> <form 0/1>
+#   api.sh api_request <GET|POST|DELETE> <path> <auth 0/1> <payload_b64> <nonce> <form 0/1>
 #   api.sh auth_state
 #   api.sh auth_save_account <b64>       # {"username","user_id","token"}
 #   api.sh auth_save_lease <b64>         # SignedLease JSON
@@ -58,7 +58,7 @@ json_num() {
 
 json_bool01() {
     [ -f "$1" ] || { printf '0'; return 0; }
-    if grep -Eq '"'"$2"'"[[:space:]]*:[[:space:]]*(true|1)' "$1" 2>/dev/null; then printf '1'; else printf '0'; fi
+    if grep -Eq "\"$2\"[[:space:]]*:[[:space:]]*(true|1|\"1\")" "$1" 2>/dev/null; then printf '1'; else printf '0'; fi
 }
 
 b64_decode() {
@@ -173,7 +173,7 @@ device_json() {
 # ---------------- API 请求 ----------------
 api_request() {
     API_METHOD="$1"; API_PATH="$2"; API_AUTH="$3"; API_BODY_B64="$4"; API_NONCE="$5"; API_FORM="$6"
-    case "$API_METHOD" in GET|POST) ;; *) err_json "非法 API 方法"; return 1 ;; esac
+    case "$API_METHOD" in GET|POST|DELETE) ;; *) err_json "非法 API 方法"; return 1 ;; esac
     printf '%s' "$API_PATH" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_./?&=%+:-]*$' || { err_json "非法 API 路径"; return 1; }
     case "$API_PATH" in *..*|*///*) err_json "非法 API 路径"; return 1 ;; esac
     if [ -z "$CURL_BIN" ]; then err_json "模块和系统均缺少 curl，无法使用网络通道"; return 1; fi
@@ -245,9 +245,30 @@ auth_state() {
     ENTITLEMENT=$(json_str "$STATE_FILE" entitlement)
     [ -n "$ENTITLEMENT" ] || ENTITLEMENT="unknown"
     LICENSE_LAST4=$(json_str "$STATE_FILE" license_last4)
+    LICENSE_ID=$(json_str "$STATE_FILE" license_id)
+    BINDING_ID=$(json_str "$STATE_FILE" binding_id)
     DEVICE_BOUND=$(json_bool01 "$STATE_FILE" device_bound)
-    LEASE_EXPIRES=$(json_str "$LEASE_FILE" expires_at)
-    [ -n "$LEASE_EXPIRES" ] || LEASE_EXPIRES=$(json_num "$LEASE_FILE" expires_at)
+    LEASE_EXPIRES=""
+    FEATURES=""
+    if [ -f "$LEASE_FILE" ]; then
+        # SignedLease: 有效期在 claims.expires_at（兼容旧顶层字段）
+        CLAIMS_TMP="${STATE_FILE%/*}/.claims.$$"
+        sed -n 's/.*"claims"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' "$LEASE_FILE" 2>/dev/null > "$CLAIMS_TMP" || :
+        if [ -s "$CLAIMS_TMP" ]; then
+            LEASE_EXPIRES=$(json_str "$CLAIMS_TMP" expires_at)
+            [ -n "$LEASE_EXPIRES" ] || LEASE_EXPIRES=$(json_num "$CLAIMS_TMP" expires_at)
+            FEATURES=$(sed -n 's/.*"features"[[:space:]]*:[[:space:]]*\(\[[^]]*\]\).*/\1/p' "$CLAIMS_TMP" 2>/dev/null | head -n 1)
+        fi
+        [ -n "$LEASE_EXPIRES" ] || LEASE_EXPIRES=$(json_str "$LEASE_FILE" expires_at)
+        [ -n "$LEASE_EXPIRES" ] || LEASE_EXPIRES=$(json_num "$LEASE_FILE" expires_at)
+        [ -n "$FEATURES" ] || FEATURES=$(sed -n 's/.*"features"[[:space:]]*:[[:space:]]*\(\[[^]]*\]\).*/\1/p' "$LEASE_FILE" 2>/dev/null | head -n 1)
+        rm -f "$CLAIMS_TMP"
+    fi
+    [ -n "$FEATURES" ] || FEATURES='[]'
+    # 已授权（active/grace）即视为已绑定；兜底旧 state.json 缺字段/字符串 "1" 情况
+    if [ "$DEVICE_BOUND" = "0" ] && { [ "$ENTITLEMENT" = "active" ] || [ "$ENTITLEMENT" = "grace" ]; }; then
+        DEVICE_BOUND=1
+    fi
     LEASE_EPOCH=$(iso_to_epoch "$LEASE_EXPIRES")
     NOW_EPOCH=$(date -u +%s 2>/dev/null || printf '0')
     REMAINING=0
@@ -258,15 +279,14 @@ auth_state() {
     DAYS_LEFT=0
     [ "$REMAINING" -gt 0 ] 2>/dev/null && DAYS_LEFT=$(( (REMAINING + 86399) / 86400 ))
     LEASE_VALID=0; [ "$REMAINING" -gt 0 ] 2>/dev/null && LEASE_VALID=1
-    FEATURES=$(sed -n 's/.*"features"[[:space:]]*:[[:space:]]*\(\[[^]]*\]\).*/\1/p' "$LEASE_FILE" 2>/dev/null | head -n 1)
-    [ -n "$FEATURES" ] || FEATURES='[]'
     PREMIUM=$(premium_installed)
     PREMIUM_VERSION=$(premium_version)
     PREMIUM_SHA=$(sha256_file "$PREMIUM_BIN")
-    printf '{"success":true,"account":"%s","username":"%s","user_id":"%s","token_present":%s,"entitlement":"%s","license_last4":"%s","device_bound":%s,"lease_expires_at":"%s","lease_remaining_seconds":%s,"lease_days_left":%s,"lease_valid":%s,"features":%s,"device_id":"%s","device_model":"%s","premium_installed":%s,"premium_version":"%s","premium_sha256":"%s"}\n' \
+    printf '{"success":true,"account":"%s","username":"%s","user_id":"%s","token_present":%s,"entitlement":"%s","license_last4":"%s","license_id":"%s","binding_id":"%s","device_bound":%s,"lease_expires_at":"%s","lease_remaining_seconds":%s,"lease_days_left":%s,"lease_valid":%s,"features":%s,"device_id":"%s","device_model":"%s","premium_installed":%s,"premium_version":"%s","premium_sha256":"%s"}\n' \
         "$([ "$TOKEN_PRESENT" = "1" ] && printf logged_in || printf none)" \
         "$(json_escape "$USER_NAME")" "$(json_escape "$USER_ID")" "$TOKEN_PRESENT" \
-        "$(json_escape "$ENTITLEMENT")" "$(json_escape "$LICENSE_LAST4")" "$DEVICE_BOUND" \
+        "$(json_escape "$ENTITLEMENT")" "$(json_escape "$LICENSE_LAST4")" \
+        "$(json_escape "$LICENSE_ID")" "$(json_escape "$BINDING_ID")" "$DEVICE_BOUND" \
         "$(json_escape "$LEASE_EXPIRES")" "$REMAINING" "$DAYS_LEFT" "$LEASE_VALID" "$FEATURES" \
         "$(json_escape "$DEVICE_SERIAL")" "$(json_escape "$DEVICE_MODEL")" \
         "$PREMIUM" "$(json_escape "$PREMIUM_VERSION")" "$(json_escape "$PREMIUM_SHA")"
@@ -299,12 +319,21 @@ auth_save_entitlement() {
     b64_decode "${1:-}" "$DATA_FILE" || { rm -f "$DATA_FILE"; err_json "授权数据解码失败"; return 1; }
     ENT=$(json_str "$DATA_FILE" entitlement)
     LAST4=$(json_str "$DATA_FILE" license_last4)
+    LICENSE_ID=$(json_str "$DATA_FILE" license_id)
+    BINDING_ID=$(json_str "$DATA_FILE" binding_id)
     BOUND=$(json_bool01 "$DATA_FILE" device_bound)
     rm -f "$DATA_FILE"
     [ -n "$ENT" ] || ENT="unknown"
-    printf '{"entitlement":"%s","license_last4":"%s","device_bound":%s}\n' "$(json_escape "$ENT")" "$(json_escape "$LAST4")" "$BOUND" > "$STATE_FILE"
+    printf '{"entitlement":"%s","license_last4":"%s","license_id":"%s","binding_id":"%s","device_bound":%s}\n' "$(json_escape "$ENT")" "$(json_escape "$LAST4")" "$(json_escape "$LICENSE_ID")" "$(json_escape "$BINDING_ID")" "$BOUND" > "$STATE_FILE"
     chmod 600 "$STATE_FILE" 2>/dev/null || true
-    printf '{"success":true,"entitlement":"%s"}\n' "$(json_escape "$ENT")"
+    printf '{"success":true,"entitlement":"%s","license_last4":"%s"}\n' "$(json_escape "$ENT")" "$(json_escape "$LAST4")"
+}
+
+auth_clear_lease() {
+    rm -f "$LEASE_FILE" 2>/dev/null
+    printf '{"entitlement":"unknown","license_last4":"","license_id":"","binding_id":"","device_bound":0}\n' > "$STATE_FILE"
+    chmod 600 "$STATE_FILE" 2>/dev/null || true
+    printf '{"success":true}\n'
 }
 
 auth_clear_account() {
@@ -375,6 +404,7 @@ case "$ACTION" in
     auth_save_lease) auth_save_lease "${2:-}" ;;
     auth_save_entitlement) auth_save_entitlement "${2:-}" ;;
     auth_clear_account) auth_clear_account ;;
+    auth_clear_lease) auth_clear_lease ;;
     auth_device_info) device_json ;;
     premium_state) premium_state ;;
     download_premium) download_premium "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
