@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True)
     parser.add_argument("--version-code", required=True)
     parser.add_argument("--zip-name", required=True)
+    parser.add_argument(
+        "--asset-name",
+        default="",
+        help="GitHub Release 资产名（ASCII）；为空时用 --zip-name",
+    )
     parser.add_argument("--sha256", default="")
     parser.add_argument("--size", default="")
     parser.add_argument("--previous-tag", default="")
@@ -71,6 +76,7 @@ def build_body(args: argparse.Namespace, commits: list[str]) -> str:
         changes = "\n".join(f"- {line}" for line in commits)
     else:
         changes = "- 维护性更新（无用户可见变更）"
+    asset_name = args.asset_name or args.zip_name
     sha_line = f"- SHA256：`{args.sha256}`" if args.sha256 else ""
     size_line = f"- 大小：{args.size} bytes" if args.size else ""
     verify = "\n".join(x for x in (size_line, sha_line) if x) or "- 见 Release 资产"
@@ -78,7 +84,8 @@ def build_body(args: argparse.Namespace, commits: list[str]) -> str:
         f"## 慕容触控采样率 v{args.version}\n\n"
         f"### 更新内容\n\n{changes}\n\n"
         "### 安装\n\n"
-        f"1. 下载 `{args.zip_name}`；\n"
+        f"1. 下载 Release 资产 `{asset_name}`（本地打包产物名为 `{args.zip_name}`；"
+        "GitHub Release 资产名不支持中文，发布时使用 ASCII 资产名）；\n"
         "2. 打开 KernelSU / Magisk 管理器 → 模块 → 从本地安装，选择该 zip；\n"
         "3. 重启手机；打开模块 WebUI 配置采样率（`config/采样率.txt` 改完 1~2 秒热生效）。\n\n"
         "### 文件校验\n\n"

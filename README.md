@@ -24,7 +24,7 @@
 ## 安装
 
 1. 到 [Releases](https://github.com/murongruyan/murongtouch/releases/latest) 下载最新的
-   `慕容触控采样率-v*.zip`；
+   `murongtouch-v*.zip`（即模块 zip；本地打包产物名为 `慕容触控采样率-v*.zip`）；
 2. KernelSU / Magisk 管理器 → 模块 → 从本地安装；
 3. 重启手机；
 4. 打开模块 WebUI → 用户页登录 / 购买授权（3 元 · 单机永久）→ 下载付费组件，
@@ -81,8 +81,13 @@ pwsh -File .\tools\package.ps1         # 输出 dist/慕容触控采样率-v<ver
 4. 更新仓库根 `update.json`（`version` / `versionCode` / `zipUrl` / `changelog`）；
 5. 把 `module/module.prop`、`update.json`、`changelog.md` 以
    `chore(release): vX.Y.Z (CODE) [skip ci]` 提交回 `main`（不会再次触发工作流）；
-6. 创建 `vX.Y.Z` tag 和 GitHub Release，上传 zip 与 `.sha256`。
+6. 创建 `vX.Y.Z` tag 和 GitHub Release，上传模块 zip 与 `.sha256`。
 
+> **Release 资产名为什么是 ASCII**：GitHub 会在 Release 资产名里丢弃中文等非 ASCII 字符
+> （`慕容触控采样率-v5.0.1.zip` 会变成 `-v5.0.1.zip`），所以工作流上传前会把本地打包的
+> `慕容触控采样率-vX.Y.Z.zip` 复制成资产名 `murongtouch-vX.Y.Z.zip`；`update.json` 的
+> `zipUrl` 指向该 ASCII 资产。下载后的文件名不影响 KSU/Magisk 安装。
+>
 > 想写更详细的更新日志：push 前先编辑 `changelog.md`，工作流只在最上方插入新版本段落，
 > 不会覆盖你手写的内容。
 
@@ -112,14 +117,15 @@ Actions → **Release** → Run workflow：
 
 ```json
 {
-  "version": "5.0.1",
-  "versionCode": 501,
-  "zipUrl": "https://github.com/murongruyan/murongtouch/releases/download/v5.0.1/慕容触控采样率-v5.0.1.zip",
+  "version": "5.0.2",
+  "versionCode": 502,
+  "zipUrl": "https://github.com/murongruyan/murongtouch/releases/download/v5.0.2/murongtouch-v5.0.2.zip",
   "changelog": "https://raw.githubusercontent.com/murongruyan/murongtouch/main/changelog.md"
 }
 ```
 
-`zipUrl` 中的中文文件名在工作流里会做 URL percent-encode（KSU/Magisk 可直接下载）。
+`zipUrl` 指向 GitHub Release 的 ASCII 资产名（GitHub 不支持中文资产名），
+KernelSU / Magisk 的在线更新会直接读取该地址。
 
 ## 与付费组件仓的关系
 

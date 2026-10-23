@@ -134,6 +134,10 @@ jobs:
           fi
 
           zip_name="${ZIP_PREFIX}-v${version}.zip"
+          # GitHub Release 资产名会丢弃非 ASCII 字符（中文前缀会被清成 "-vX.Y.Z.zip"），
+          # 所以发布时用 ASCII 资产名；update.json 的 zipUrl 指向该资产名。
+          asset_name="murongtouch-v${version}.zip"
+          asset_sha_name="${asset_name}.sha256"
           {
             echo "current_version=$current_version"
             echo "current_code=$current_code"
@@ -142,9 +146,12 @@ jobs:
             echo "bump=$bump"
             echo "publish=$publish"
             echo "zip_name=$zip_name"
+            echo "asset_name=$asset_name"
+            echo "asset_sha_name=$asset_sha_name"
             echo "tag=v$version"
           } >> "$GITHUB_OUTPUT"
           echo "版本: v$current_version → v$version（versionCode $current_code → $version_code, bump=$bump, publish=$publish）"
+          echo "本地 zip: $zip_name / Release 资产: $asset_name"
 
       - name: Sync module.prop & update.json
         shell: bash
@@ -156,7 +163,8 @@ jobs:
             --version-code "${{ steps.meta.outputs.version_code }}" \
             --repo "${{ github.repository }}" \
             --branch "${{ github.ref_name }}" \
-            --zip-name "${{ steps.meta.outputs.zip_name }}"
+            --zip-name "${{ steps.meta.outputs.zip_name }}" \
+            --asset-name "${{ steps.meta.outputs.asset_name }}"
           echo '--- module.prop ---'
           cat "$MODULE_DIR/module.prop"
           echo '--- update.json ---'
@@ -166,6 +174,28 @@ jobs:
         id: package
         shell: bash
         run: bash tools/package.sh "$MODULE_DIR" "${{ steps.meta.outputs.version }}" dist
+
+      - name: Prepare release assets (ASCII names)
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub Release 资产名会丢弃非 ASCII 字符（中文前缀会变成 "-vX.Y.Z.zip"），
+          # 因此上传前把本地构建的 慕容触控采样率-vX.Y.Z.zip 复制为 ASCII 资产名。
+          asset_dir='dist/release'
+          rm -rf "$asset_dir"
+          mkdir -p "$asset_dir"
+          cp "${{ steps.package.outputs.zip_path }}" "$asset_dir/${{ steps.meta.outputs.asset_name }}"
+          (
+            cd "$asset_dir"
+            sha256sum "${{ steps.meta.outputs.asset_name }}" > "${{ steps.meta.outputs.asset_sha_name }}"
+          )
+          asset_path="$PWD/$asset_dir/${{ steps.meta.outputs.asset_name }}"
+          asset_sha_path="$PWD/$asset_dir/${{ steps.meta.outputs.asset_sha_name }}"
+          echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
+          echo "asset_sha_path=$asset_sha_path" >> "$GITHUB_OUTPUT"
+          echo "已准备 Release 资产: ${{ steps.meta.outputs.asset_name }} ($(wc -c < "$asset_path" | tr -d ' ') bytes)"
+          cat "$asset_sha_path"
 
       - name: Generate changelog & release notes
         id: notes
@@ -183,6 +213,7 @@ jobs:
             --version "${{ steps.meta.outputs.version }}" \
             --version-code "${{ steps.meta.outputs.version_code }}" \
             --zip-name "${{ steps.meta.outputs.zip_name }}" \
+            --asset-name "${{ steps.meta.outputs.asset_name }}" \
             --sha256 "${{ steps.package.outputs.sha256 }}" \
             --size "${{ steps.package.outputs.size }}" \
             --previous-tag "$previous_tag" \
@@ -218,17 +249,22 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
-          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          ASSET_PATH: ${{ steps.assets.outputs.asset_path }}
+          ASSET_SHA_PATH: ${{ steps.assets.outputs.asset_sha_path }}
+          ASSET_NAME: ${{ steps.meta.outputs.asset_name }}
+          ASSET_SHA_NAME: ${{ steps.meta.outputs.asset_sha_name }}
           BUMP: ${{ steps.meta.outputs.bump }}
           RELEASE_TARGET: ${{ steps.commit.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
+          test -s "$ASSET_PATH"
+          test -s "$ASSET_SHA_PATH"
           title="慕容触控采样率 v$VERSION"
           if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
             if [ "$BUMP" = 'true' ]; then
               gh release edit "$TAG" --repo "$REPOSITORY" --title "$title" --notes-file release-notes.md
             fi
-            gh release upload "$TAG" --repo "$REPOSITORY" "$ZIP_PATH" "$ZIP_PATH.sha256" --clobber
+            gh release upload "$TAG" --repo "$REPOSITORY" "$ASSET_PATH" "$ASSET_SHA_PATH" --clobber
             echo "已更新既有 Release: $TAG"
           else
             gh release create "$TAG" \
@@ -236,17 +272,29 @@ jobs:
               --target "$RELEASE_TARGET" \
               --title "$title" \
               --notes-file release-notes.md \
-              "$ZIP_PATH" "$ZIP_PATH.sha256"
+              "$ASSET_PATH" "$ASSET_SHA_PATH"
             echo "已创建 Release: $TAG"
           fi
+
+          # 清理不属于本次发布命名的旧资产（例如历史上传的中文名被 GitHub 截断后的残留）
+          gh api "repos/$REPOSITORY/releases/tags/$TAG" --jq '.assets[] | [.id, .name] | @tsv' |
+          while IFS=$'\t' read -r asset_id asset_name; do
+            [ -n "$asset_id" ] || continue
+            case " $ASSET_NAME $ASSET_SHA_NAME " in
+              *" $asset_name "*) ;;
+              *) echo "清理旧资产: $asset_name"; gh api --method DELETE "repos/$REPOSITORY/releases/assets/$asset_id" >/dev/null ;;
+            esac
+          done
+
           release_url="$(gh release view "$TAG" --repo "$REPOSITORY" --json url --jq .url)"
           {
             echo "release_url=$release_url"
             echo "tag=$TAG"
+            echo "asset_name=$ASSET_NAME"
           } >> "$GITHUB_OUTPUT"
           echo "Release URL: $release_url"
           gh release view "$TAG" --repo "$REPOSITORY" --json assets \
-            --jq '.assets[] | "  asset: \(.name)  size=\(.size)  sha256=\(.digest // "n/a")"'
+            --jq '.assets[] | "  asset: \(.name)  size=\(.size)  digest=\(.digest // "n/a")"'
 
       - name: Upload build artifact (build-only mode)
         if: steps.meta.outputs.publish != 'true'
@@ -269,6 +317,7 @@ jobs:
           BUMP: ${{ steps.meta.outputs.bump }}
           PUBLISH: ${{ steps.meta.outputs.publish }}
           ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+          ASSET_NAME: ${{ steps.meta.outputs.asset_name }}
           SHA256: ${{ steps.package.outputs.sha256 }}
           SIZE: ${{ steps.package.outputs.size }}
           RELEASE_URL: ${{ steps.release.outputs.release_url }}
@@ -278,7 +327,8 @@ jobs:
             echo "## 慕容触控采样率 v${VERSION:-?}（versionCode ${VERSION_CODE:-?}）"
             echo ''
             echo "- 触发方式：\`$EVENT_NAME\`，bump=\`${BUMP:-?}\`，publish=\`${PUBLISH:-?}\`"
-            echo "- 安装包：\`${ZIP_NAME:-?}\`（${SIZE:-?} bytes）"
+            echo "- 本地构建产物：\`${ZIP_NAME:-?}\`（${SIZE:-?} bytes）"
+            echo "- Release 资产（ASCII；GitHub 资产名不支持中文）：\`${ASSET_NAME:-?}\`"
             echo "- SHA256：\`${SHA256:-?}\`"
             if [ -n "${RELEASE_URL:-}" ]; then
               echo "- Release：$RELEASE_URL"

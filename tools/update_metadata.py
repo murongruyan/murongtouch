@@ -8,12 +8,14 @@
         --version 5.0.1 --version-code 501 \
         --repo murongruyan/murongtouch \
         --branch main \
-        --zip-name 慕容触控采样率-v5.0.1.zip
+        --zip-name 慕容触控采样率-v5.0.1.zip \
+        --asset-name murongtouch-v5.0.1.zip
 
 module.prop 会写入 version / versionCode / updateJson（缺失 updateJson 时追加），
 update.json 按显示模块（murongchaopin）的 updateJson 字段格式写出：
     { "version", "versionCode", "zipUrl", "changelog" }
-zipUrl 里的中文文件名按 URL 规范 percent-encode，保证 KSU/Magisk 更新检查能直接下载。
+zipUrl 指向 GitHub Release 的 ASCII 资产名（GitHub 会丢弃资产名中的中文，
+所以发布时把本地构建的 慕容触控采样率-vX.Y.Z.zip 复制为 murongtouch-vX.Y.Z.zip 再上传）。
 """
 
 from __future__ import annotations
@@ -34,7 +36,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version-code", required=True, type=int)
     parser.add_argument("--repo", required=True, help="owner/name，例如 murongruyan/murongtouch")
     parser.add_argument("--branch", default="main")
-    parser.add_argument("--zip-name", required=True)
+    parser.add_argument(
+        "--zip-name",
+        required=True,
+        help="给人看的 zip 文件名（本地构建产物，如 慕容触控采样率-v5.0.1.zip）",
+    )
+    parser.add_argument(
+        "--asset-name",
+        default="",
+        help="GitHub Release 资产名（必须是 ASCII，GitHub 会丢弃资产名中的中文）；"
+        "默认与 --zip-name 相同",
+    )
     parser.add_argument("--update-json", default="update.json")
     parser.add_argument("--changelog", default="changelog.md")
     return parser.parse_args()
@@ -64,8 +76,8 @@ def update_module_prop(path: Path, version: str, version_code: int, update_json_
     path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8", newline="\n")
 
 
-def build_update_json(repo: str, branch: str, version: str, version_code: int, zip_name: str) -> dict:
-    encoded_zip = urllib.parse.quote(zip_name, safe="")
+def build_update_json(repo: str, branch: str, version: str, version_code: int, asset_name: str) -> dict:
+    encoded_zip = urllib.parse.quote(asset_name, safe="")
     return {
         "version": version,
         "versionCode": version_code,
@@ -82,7 +94,13 @@ def main() -> int:
     )
     update_module_prop(module_dir / "module.prop", args.version, args.version_code, update_json_url)
 
-    data = build_update_json(args.repo, args.branch, args.version, args.version_code, args.zip_name)
+    data = build_update_json(
+        args.repo,
+        args.branch,
+        args.version,
+        args.version_code,
+        args.asset_name or args.zip_name,
+    )
     update_path = Path(args.update_json)
     update_path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
