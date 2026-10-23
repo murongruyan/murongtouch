@@ -8,6 +8,7 @@
 #   api.sh auth_save_lease <b64>         # SignedLease JSON
 #   api.sh auth_save_entitlement <b64>   # {"entitlement","license_last4","device_bound"}
 #   api.sh auth_clear_account
+#   api.sh auth_auto_renew               # daemon 定时：刷新 token + 自动续租，失败也 exit 0
 #   api.sh auth_device_info
 #   api.sh premium_state
 #   api.sh download_premium <pkg_id> <token> <out_zip> [download_url]
@@ -173,6 +174,7 @@ device_json() {
 # ---------------- API 请求 ----------------
 api_request() {
     API_METHOD="$1"; API_PATH="$2"; API_AUTH="$3"; API_BODY_B64="$4"; API_NONCE="$5"; API_FORM="$6"
+    API_LAST_HTTP_CODE=""
     case "$API_METHOD" in GET|POST|DELETE) ;; *) err_json "非法 API 方法"; return 1 ;; esac
     printf '%s' "$API_PATH" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_./?&=%+:-]*$' || { err_json "非法 API 路径"; return 1; }
     case "$API_PATH" in *..*|*///*) err_json "非法 API 路径"; return 1 ;; esac
@@ -215,6 +217,8 @@ api_request() {
     "$CURL_BIN" "$@" -D "$HEADER_FILE" -o "$RESP_FILE" "$API_URL" 2>/dev/null
     CURL_STATUS=$?
     [ -n "$BODY_FILE" ] && rm -f "$BODY_FILE"
+    API_LAST_HTTP_CODE=$(sed -n 's/^HTTP\/[0-9.]*[[:space:]]*\([0-9][0-9][0-9]\).*/\1/p' "$HEADER_FILE" 2>/dev/null | tail -n 1)
+    [ -n "${API_HTTP_CODE_FILE:-}" ] && [ -n "$API_LAST_HTTP_CODE" ] && printf '%s' "$API_LAST_HTTP_CODE" > "$API_HTTP_CODE_FILE" 2>/dev/null
     if [ "$CURL_STATUS" -ne 0 ]; then
         rm -f "$RESP_FILE" "$HEADER_FILE"
         err_json "服务器网络请求失败"
@@ -341,6 +345,148 @@ auth_clear_account() {
     printf '{"success":true}\n'
 }
 
+# ---------------- daemon 自助续期（刷新 token + 自动续租） ----------------
+b64url_encode_text() {
+    DATA="$1"
+    if command -v base64 >/dev/null 2>&1; then
+        printf '%s' "$DATA" | base64 2>/dev/null | tr -d '\r\n' | tr '+/' '-_' | tr -d '='
+        return 0
+    fi
+    if [ -n "$BUSYBOX_BIN" ]; then
+        printf '%s' "$DATA" | "$BUSYBOX_BIN" base64 2>/dev/null | tr -d '\r\n' | tr '+/' '-_' | tr -d '='
+        return 0
+    fi
+    printf ''
+}
+
+gen_nonce() {
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        UUID_VALUE=$(tr -d '\r\n' < /proc/sys/kernel/random/uuid 2>/dev/null | head -c 64)
+        case "$UUID_VALUE" in ''|*[!A-Za-z0-9-]*) ;; *) printf '%s' "$UUID_VALUE"; return 0 ;; esac
+    fi
+    NOW_VALUE=$(date +%s 2>/dev/null || printf '0')
+    RAND_VALUE=${RANDOM:-0}
+    printf 'auto-%s-%s-%s' "$NOW_VALUE" "$RAND_VALUE" "$(date +%N 2>/dev/null | head -c 6)"
+}
+
+json_first_object() {
+    # 从 stdin 提取第一个括号平衡的 JSON 对象（忽略字符串内括号；用于剥离 timestamp 等尾部字段）
+    if [ -n "$BUSYBOX_BIN" ]; then
+        "$BUSYBOX_BIN" awk 'BEGIN{depth=0;started=0;out=""} { for(i=1;i<=length($0);i++){ c=substr($0,i,1); if(!started){ if(c=="{"){started=1;depth=1;out="{"} continue } out=out c; if(c=="{"){depth++} else if(c=="}"){depth--; if(depth==0){print out; exit}} } }'
+    else
+        awk 'BEGIN{depth=0;started=0;out=""} { for(i=1;i<=length($0);i++){ c=substr($0,i,1); if(!started){ if(c=="{"){started=1;depth=1;out="{"} continue } out=out c; if(c=="{"){depth++} else if(c=="}"){depth--; if(depth==0){print out; exit}} } }'
+    fi
+}
+
+auth_auto_renew() {
+    # daemon 定时调用：先刷新登录 token（api_request 自动处理 X-Refresh-Token），再自动续租。
+    # 无论成功失败均返回单行 JSON 且退出码 0，避免中断 daemon 定时任务。
+    TOKEN_BEFORE=$(json_str "$ACCOUNT_FILE" token)
+    [ -n "$TOKEN_BEFORE" ] || {
+        printf '{"success":false,"error":"no_account","message":"未登录"}\n'
+        return 0
+    }
+    if [ ! -s "$AUTH_DIR/device_identity.json" ]; then
+        device_identity >/dev/null 2>&1 || true
+    fi
+    DEVICE_IDENTITY_JSON=""
+    [ -f "$AUTH_DIR/device_identity.json" ] && DEVICE_IDENTITY_JSON=$(tr -d '\r\n' < "$AUTH_DIR/device_identity.json" 2>/dev/null)
+    [ -n "$DEVICE_IDENTITY_JSON" ] || {
+        printf '{"success":false,"error":"bad_response","message":"设备身份缺失"}\n'
+        return 0
+    }
+
+    NONCE=$(gen_nonce)
+    HTTP_CODE_FILE="$AUTH_DIR/.api_http_code"
+    rm -f "$HTTP_CODE_FILE"
+    API_HTTP_CODE_FILE="$HTTP_CODE_FILE"
+    LICENSES_RESP=$(api_request GET "v1/touch/licenses" 1 "" "$NONCE" 0)
+    HTTP_CODE=$(cat "$HTTP_CODE_FILE" 2>/dev/null || printf '')
+    rm -f "$HTTP_CODE_FILE"
+    if [ "$HTTP_CODE" = "401" ] || printf '%s' "$LICENSES_RESP" | grep -q '"code"[[:space:]]*:[[:space:]]*401'; then
+        printf '{"success":false,"error":"token_expired","message":"登录已过期"}\n'
+        return 0
+    fi
+    case "$HTTP_CODE" in
+        '') printf '{"success":false,"error":"network","message":"网络请求失败"}\n'; return 0 ;;
+        *[!0-9]*) printf '{"success":false,"error":"bad_response","message":"licenses 响应异常"}\n'; return 0 ;;
+    esac
+    if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+        printf '{"success":false,"error":"http_%s","message":"licenses 请求失败"}\n' "$HTTP_CODE"
+        return 0
+    fi
+    ACTIVE_LINE=$(printf '%s' "$LICENSES_RESP" | tr '{' '\n' | grep '"status"[[:space:]]*:[[:space:]]*"active"' | head -n 1)
+    LICENSE_LAST4=$(printf '%s' "$ACTIVE_LINE" | sed -n 's/.*"key_last4"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+
+    LEASE_BODY_B64=$(b64url_encode_text "$DEVICE_IDENTITY_JSON")
+    [ -n "$LEASE_BODY_B64" ] || {
+        printf '{"success":false,"error":"bad_response","message":"设备身份编码失败"}\n'
+        return 0
+    }
+    NONCE2=$(gen_nonce)
+    rm -f "$HTTP_CODE_FILE"
+    API_HTTP_CODE_FILE="$HTTP_CODE_FILE"
+    LEASE_RESP=$(api_request POST "v1/touch/licenses/lease" 1 "$LEASE_BODY_B64" "$NONCE2" 0)
+    HTTP_CODE=$(cat "$HTTP_CODE_FILE" 2>/dev/null || printf '')
+    rm -f "$HTTP_CODE_FILE"
+    if [ "$HTTP_CODE" = "401" ] || printf '%s' "$LEASE_RESP" | grep -q '"code"[[:space:]]*:[[:space:]]*401'; then
+        printf '{"success":false,"error":"token_expired","message":"登录已过期"}\n'
+        return 0
+    fi
+    case "$HTTP_CODE" in
+        '') printf '{"success":false,"error":"network","message":"网络请求失败"}\n'; return 0 ;;
+        *[!0-9]*) printf '{"success":false,"error":"bad_response","message":"续租响应异常"}\n'; return 0 ;;
+    esac
+    if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+        printf '{"success":false,"error":"http_%s","message":"续租请求失败"}\n' "$HTTP_CODE"
+        return 0
+    fi
+
+    DATA_FILE=$(mktemp 2>/dev/null) || { printf '{"success":false,"error":"bad_response","message":"临时文件失败"}\n'; return 0; }
+    CLAIMS_FILE=$(mktemp 2>/dev/null) || { rm -f "$DATA_FILE"; printf '{"success":false,"error":"bad_response","message":"临时文件失败"}\n'; return 0; }
+    DATA_JSON=$(printf '%s' "$LEASE_RESP" | sed 's/^[^{]*{.*"data"[[:space:]]*:[[:space:]]*//' | json_first_object)
+    printf '%s' "$DATA_JSON" > "$DATA_FILE"
+    if [ ! -s "$DATA_FILE" ] || ! head -c 1 "$DATA_FILE" | grep -q '{' || ! grep -q '"claims"' "$DATA_FILE"; then
+        rm -f "$DATA_FILE" "$CLAIMS_FILE"
+        printf '{"success":false,"error":"bad_response","message":"续租响应缺少 SignedLease data"}\n'
+        return 0
+    fi
+    sed -n 's/.*"claims"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' "$DATA_FILE" > "$CLAIMS_FILE"
+    if [ ! -s "$CLAIMS_FILE" ]; then
+        rm -f "$DATA_FILE" "$CLAIMS_FILE"
+        printf '{"success":false,"error":"bad_response","message":"SignedLease 缺少 claims"}\n'
+        return 0
+    fi
+    LEASE_EXPIRES=$(json_str "$CLAIMS_FILE" expires_at)
+    [ -n "$LEASE_EXPIRES" ] || LEASE_EXPIRES=$(json_num "$CLAIMS_FILE" expires_at)
+    LEASE_EPOCH=$(iso_to_epoch "$LEASE_EXPIRES")
+    if [ -z "$LEASE_EPOCH" ] || [ "$LEASE_EPOCH" = "0" ]; then
+        rm -f "$DATA_FILE" "$CLAIMS_FILE"
+        printf '{"success":false,"error":"bad_response","message":"SignedLease 缺少 expires_at"}\n'
+        return 0
+    fi
+    LICENSE_ID=$(json_num "$CLAIMS_FILE" license_id)
+    BINDING_ID=$(json_num "$CLAIMS_FILE" binding_id)
+    mv "$DATA_FILE" "$LEASE_FILE" 2>/dev/null || { cp "$DATA_FILE" "$LEASE_FILE" 2>/dev/null; rm -f "$DATA_FILE"; }
+    chmod 600 "$LEASE_FILE" 2>/dev/null || true
+    rm -f "$CLAIMS_FILE"
+
+    printf '{"entitlement":"active","license_last4":"%s","license_id":"%s","binding_id":"%s","device_bound":1}\n' \
+        "$(json_escape "$LICENSE_LAST4")" "$(json_escape "$LICENSE_ID")" "$(json_escape "$BINDING_ID")" > "$STATE_FILE"
+    chmod 600 "$STATE_FILE" 2>/dev/null || true
+
+    TOKEN_AFTER=$(json_str "$ACCOUNT_FILE" token)
+    TOKEN_REFRESHED=false
+    [ "$TOKEN_AFTER" != "$TOKEN_BEFORE" ] && TOKEN_REFRESHED=true
+    NOW_EPOCH=$(date -u +%s 2>/dev/null || printf '0')
+    REMAINING=$((LEASE_EPOCH - NOW_EPOCH))
+    [ "$REMAINING" -lt 0 ] && REMAINING=0
+    DAYS_LEFT=$(( (REMAINING + 86399) / 86400 ))
+    printf '{"success":true,"renewed":true,"lease_expires_at":%s,"lease_days_left":%s,"token_refreshed":%s}\n' \
+        "$LEASE_EPOCH" "$DAYS_LEFT" "$TOKEN_REFRESHED"
+    return 0
+}
+
 premium_state() {
     INSTALLED=$(premium_installed)
     VERSION=$(premium_version)
@@ -438,6 +584,7 @@ case "$ACTION" in
     auth_save_entitlement) auth_save_entitlement "${2:-}" ;;
     auth_clear_account) auth_clear_account ;;
     auth_clear_lease) auth_clear_lease ;;
+    auth_auto_renew) auth_auto_renew ;;
     auth_device_info) device_json ;;
     premium_state) premium_state ;;
     download_premium) download_premium "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
