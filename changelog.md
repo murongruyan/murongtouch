@@ -3,6 +3,13 @@
 > 本文件由发布工作流在每次发版时自动在最上方插入新版本段落；也可以手动编辑。
 > 模块内的在线更新（`update.json`）与 Release 说明都会引用本文件。
 
+## v5.0.2 (502) - 2026-10-23
+
+1. fix: Release 资产名改为 ASCII（GitHub 会丢弃中文资产名），update.json zipUrl 与 Release 资产保持一致
+2. docs: 仓库说明、发版流程、update.json 与更新日志
+3. feat: 自动发版流水线（push main 自动 bump + tag/Release + update.json 同步）
+4. feat: 慕容触控采样率 v5.0 免费模块（WebUI / 多后端探测 / 租约门禁）
+
 ## v5.0.1 (501) - 2026-10-23
 
 1. docs: 仓库说明、发版流程、update.json 与更新日志
