@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.15 · KernelSU WebUI
+ * 慕容触控采样率 v5.16 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.15.0';
+var WEBUI_VERSION = '5.16.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -85,7 +85,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.15.0',
+    moduleVersion: 'v5.16.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -461,7 +461,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.15.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.16.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -519,7 +519,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.15.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.16.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -585,7 +585,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.15.0 后端探测报告',
+            return ['touch_rate_daemon v5.16.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -810,7 +810,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.15：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.16：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1329,6 +1329,98 @@ function renderHeader() {
     }
 }
 
+function effectiveSourceInfo(state) {
+    var s = state || {};
+    if (s.sync_enabled) {
+        return {
+            label: '触显同步',
+            detail: '（' + (s.refresh_hz || '—') + '→' + (s.sync_target_hz || '—') + ' Hz）',
+            toastLabel: '触显同步'
+        };
+    }
+    if (s.matched && Number(s.rule_rate) > 0) {
+        var ruleHz = rateToHz(s.rule_rate) || s.rule_rate;
+        return {
+            label: '应用规则',
+            detail: ((s.foreground || '当前应用') + ' ' + ruleHz + ' Hz'),
+            toastLabel: '应用规则'
+        };
+    }
+    if (Number(s.global_rate) > 0) {
+        return { label: '全局', detail: (Number(s.global_rate) + ' Hz'), toastLabel: '全局' };
+    }
+    return { label: '系统默认', detail: '', toastLabel: '系统默认' };
+}
+
+function renderConfigStatus(state) {
+    var s = state || APP.state || {};
+    var info = effectiveSourceInfo(s);
+    setText('config-effective', '当前生效：' + info.label + (info.detail ? ' · ' + info.detail : ''));
+    setText('effective-source', info.label + (info.detail ? ' · ' + info.detail : ''));
+    var warn = $('config-sync-warning');
+    if (warn) warn.hidden = !s.sync_enabled;
+    var hint = $('config-global-hint');
+    if (hint) {
+        var ruled = !!(s.matched && Number(s.rule_rate) > 0);
+        hint.hidden = !ruled;
+        if (ruled) {
+            hint.textContent = '当前前台应用 ' + (s.foreground || '') + ' 有单独规则 ' +
+                (rateToHz(s.rule_rate) || s.rule_rate) + ' Hz，全局值只对无规则应用生效。';
+        }
+    }
+}
+
+async function guardConfigChange(changeFn) {
+    if (APP.configGuardBusy) return;
+    if (!APP.state || !APP.state.sync_enabled) {
+        await changeFn();
+        return;
+    }
+    APP.configGuardBusy = true;
+    try {
+        var ok = await confirmDialog({
+            title: '关闭触显同步并应用？',
+            message: '触显同步已开启，采样率配置（全局/应用规则）暂不生效。需要关闭触显同步才能应用该配置，关闭并应用？',
+            confirmText: '关闭并应用',
+            danger: true
+        });
+        if (!ok) return;
+        await runCommand(CMD.writeSyncConfig(b64urlEncode('0')), { timeout: 15000 });
+        await runCommand(CMD.reload(), { timeout: 20000 });
+        toast('已关闭触显同步，正在应用配置', 'ok');
+        await changeFn();
+        await sleep(250);
+        await refreshStatus();
+    } catch (e) {
+        toast('关闭触显同步失败：' + (e && e.message ? e.message : e), 'err', 3600);
+    } finally {
+        APP.configGuardBusy = false;
+    }
+}
+
+function notifyConfigApplied(state) {
+    var s = state || APP.state || {};
+    var info = effectiveSourceInfo(s);
+    toast('已应用，当前 ' + (s.current_hz || '—') + 'Hz（来源：' + info.toastLabel + '）', 'ok', 3400);
+}
+
+async function pollConfigApplied() {
+    var start = Date.now();
+    var lastState = APP.state || {};
+    for (var i = 0; i < SYNC_RECHECK_DELAYS.length; i++) {
+        var wait = SYNC_RECHECK_DELAYS[i] - (Date.now() - start);
+        if (wait > 0) await sleep(wait);
+        await refreshStatus();
+        lastState = APP.state || {};
+        if (lastState.target_hz > 0 && lastState.current_hz === lastState.target_hz) {
+            notifyConfigApplied(lastState);
+            return;
+        }
+    }
+    toast('配置已保存，但暂未一致：目标 ' + (lastState.target_hz || '—') + ' Hz，当前 ' +
+        (lastState.current_hz || '—') + ' Hz（可能被触显同步/规则覆盖）', 'warn', 4200);
+}
+
 function syncSourceLabel(source) {
     var value = String(source || '');
     if (value === 'display_log') return '慕容显示增强日志（实际刷新率）';
@@ -1461,6 +1553,7 @@ function renderHome() {
     var s = APP.state;
     if (!s) return;
     renderSyncCard(s);
+    renderConfigStatus(s);
     setText('cur-hz', s.current_hz > 0 ? String(s.current_hz) : '--');
     var hero = $('hero-rate');
     if (hero) hero.className = 'hero-num ' + (!s.current_hz ? 'tier-unknown' : (s.current_hz >= 360 ? 'tier-high' : (s.current_hz >= 240 ? 'tier-mid' : 'tier-low')));
@@ -1744,20 +1837,22 @@ function openAppRateSheet(app) {
 
 function bindAppRateSheet() {
     document.querySelectorAll('#app-rate-options [data-app-rate]').forEach(function (btn) {
-        btn.addEventListener('click', async function () {
-            if (!APP.selectedApp) return;
-            var value = btn.dataset.appRate;
-            if (value === 'remove') {
-                var ok = await confirmDialog({ title: '跟随全局默认', message: '将删除该应用规则，改为跟随全局默认采样率。', confirmText: '删除规则', danger: true });
-                if (!ok) return;
-                setRuleRate(APP.selectedApp.pkg, 0);
+        btn.addEventListener('click', function () {
+            guardConfigChange(async function () {
+                if (!APP.selectedApp) return;
+                var value = btn.dataset.appRate;
+                if (value === 'remove') {
+                    var ok = await confirmDialog({ title: '跟随全局默认', message: '将删除该应用规则，改为跟随全局默认采样率。', confirmText: '删除规则', danger: true });
+                    if (!ok) return;
+                    setRuleRate(APP.selectedApp.pkg, 0);
+                    closeDrawer('app-rate-sheet');
+                    toast('已改为跟随全局默认，实时生效', 'ok');
+                    return;
+                }
+                setRuleRate(APP.selectedApp.pkg, value);
                 closeDrawer('app-rate-sheet');
-                toast('已改为跟随全局默认，实时生效', 'ok');
-                return;
-            }
-            setRuleRate(APP.selectedApp.pkg, value);
-            closeDrawer('app-rate-sheet');
-            toast('已更新规则，实时生效', 'ok');
+                toast('已更新规则，实时生效', 'ok');
+            });
         });
     });
 }
@@ -1947,7 +2042,9 @@ async function applyConfigNow() {
         updateRulesCount();
         if (hasSentinel(reload, '__HUP_OK__')) {
             setConfigResult('已生效 ✓ 配置已写入并热重载', 'ok');
-            toast('已生效', 'ok');
+            await sleep(150);
+            await refreshStatus();
+            await pollConfigApplied();
         } else {
             setConfigResult('配置已写入，但热重载失败（守护进程可能未运行）', 'err');
             toast('已写入，但热重载失败', 'warn', 3200);
@@ -2189,7 +2286,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.15：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.16：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3354,7 +3451,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.15：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.16：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3561,7 +3658,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.15.0';
+var ABOUT_VERSION = 'v5.16.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -4278,11 +4375,13 @@ function bindBaseControls() {
 function bindConfigControls() {
     document.querySelectorAll('#global-rate-pills [data-global-rate]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            APP.config.global = parseInt(btn.dataset.globalRate, 10) || 0;
-            markDirty();
-            updateGlobalDefault();
-            updateConfigWarnings();
-            scheduleConfigApply();
+            guardConfigChange(function () {
+                APP.config.global = parseInt(btn.dataset.globalRate, 10) || 0;
+                markDirty();
+                updateGlobalDefault();
+                updateConfigWarnings();
+                scheduleConfigApply();
+            });
         });
     });
     var search = $('app-search');
@@ -4508,6 +4607,11 @@ if (typeof window !== 'undefined') {
         renderSyncCard: renderSyncCard,
         syncSourceLabel: syncSourceLabel,
         syncSourceShortLabel: syncSourceShortLabel,
+        effectiveSourceInfo: effectiveSourceInfo,
+        renderConfigStatus: renderConfigStatus,
+        guardConfigChange: guardConfigChange,
+        pollConfigApplied: pollConfigApplied,
+        notifyConfigApplied: notifyConfigApplied,
         syncLastWriteText: syncLastWriteText,
         toggleTouchSync: toggleTouchSync,
         SYNC_CONF_PATH: SYNC_CONF_PATH,

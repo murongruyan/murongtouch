@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.15</title>
+    <title>慕容触控采样率 v5.16</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -41,9 +41,10 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.15.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.16.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
+                <div class="status-line"><span>生效来源</span><b id="effective-source">—</b></div>
             </div>
 
             <div class="section-label">触显同步</div>
@@ -155,6 +156,8 @@
                 <span id="config-400-warn" hidden><br>当前配置包含 400Hz，请确认风险。</span>
             </div>
             <div class="alert alert-info" id="config-notice" hidden></div>
+            <div class="alert alert-warn" id="config-sync-warning" hidden><b>触显同步已开启：</b>采样率配置（全局/应用规则）暂不生效。修改配置时会提示关闭触显同步。</div>
+            <div class="alert alert-info" id="config-effective">当前生效：—</div>
 
             <div class="section-label">采样率</div>
             <div class="card">
@@ -172,6 +175,7 @@
                     <button type="button" class="pill-option" data-global-rate="400">400</button>
                 </div>
                 <p class="hint">未命中应用规则时使用：<b>0 = 不强制</b>（恢复系统原值）。</p>
+                <p class="hint hint-warn" id="config-global-hint" hidden></p>
             </div>
 
             <div class="section-label-row">
@@ -299,12 +303,12 @@
                     <span class="chevron">›</span>
                 </button>
             </div>
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.15 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.16 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.15</span>
+        <span>慕容触控采样率 v5.16</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>
