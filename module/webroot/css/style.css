@@ -3693,7 +3693,7 @@ body.subpage-open .app-footer {
     font-size: 13px;
 }
 
-/* v5.13 触显同步卡片 */
+/* v5.15 触显同步卡片 */
 .sync-card {
     margin-top: 0;
 }
@@ -3748,6 +3748,13 @@ body.subpage-open .app-footer {
 
 .sync-switch input:disabled + .sync-switch-slider {
     opacity: .45;
+}
+
+.sync-map {
+    margin-top: 4px;
+    color: var(--row-sub);
+    font-size: 11.5px;
+    line-height: 1.5;
 }
 
 .sync-hint {

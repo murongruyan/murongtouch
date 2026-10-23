@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.13 · KernelSU WebUI
+ * 慕容触控采样率 v5.15 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.13.0';
+var WEBUI_VERSION = '5.15.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -85,7 +85,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.13.0',
+    moduleVersion: 'v5.15.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -461,7 +461,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.13.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.15.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -484,8 +484,8 @@ var MOCK = {
     measureHz: 359.8,
     manualHz: 0,
     syncEnabled: false,
-    syncRefreshHz: 120,
-    syncTargetHz: 240,
+    syncRefreshHz: 60,
+    syncTargetHz: 120,
     syncPkg: 'com.tencent.tmgp.sgame',
     displayModuleInstalled: true,
     apps: [
@@ -519,7 +519,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.13.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.15.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -527,7 +527,7 @@ function mockState() {
         config_path: CONFIG_PATH, daemon_log: DAEMON_LOG_PATH, licensed: !!MOCK.license.activated,
         sync_enabled: !!MOCK.syncEnabled, refresh_hz: MOCK.syncRefreshHz,
         sync_target_hz: MOCK.syncEnabled ? MOCK.syncTargetHz : 0,
-        sync_source: MOCK.syncEnabled ? 'display_module' : 'fallback',
+        sync_source: MOCK.syncEnabled ? 'display_log' : 'fallback',
         sync_package: MOCK.syncEnabled ? MOCK.syncPkg : '',
         last_write_target_hz: MOCK.syncEnabled ? MOCK.syncTargetHz : 0,
         last_write_ok: !!MOCK.syncEnabled,
@@ -585,7 +585,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.13.0 后端探测报告',
+            return ['touch_rate_daemon v5.15.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -810,7 +810,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.13：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.15：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1331,9 +1331,19 @@ function renderHeader() {
 
 function syncSourceLabel(source) {
     var value = String(source || '');
-    if (value === 'display_module') return '慕容显示增强（已联动）';
-    if (value === 'dump_info' || value === 'dumpsys') return '节点检测';
+    if (value === 'display_log') return '慕容显示增强日志（实际刷新率）';
+    if (value === 'display_module') return '慕容显示增强配置';
+    if (value === 'dump_info' || value === 'dumpsys') return '系统节点检测';
     if (value === 'fallback') return '回退采样率规则';
+    return value || '—';
+}
+
+function syncSourceShortLabel(source) {
+    var value = String(source || '');
+    if (value === 'display_log') return '显示增强日志';
+    if (value === 'display_module') return '显示增强配置';
+    if (value === 'dump_info' || value === 'dumpsys') return '系统节点检测';
+    if (value === 'fallback') return '回退规则';
     return value || '—';
 }
 
@@ -1357,6 +1367,7 @@ function renderSyncCard(s) {
         return;
     }
     var sourceLabel = syncSourceLabel(s.sync_source);
+    var sourceShort = syncSourceShortLabel(s.sync_source);
     setText('sync-refresh', s.refresh_hz > 0 ? (s.refresh_hz + ' Hz') : '—');
     setText('sync-target', s.sync_target_hz > 0 ? (s.sync_target_hz + ' Hz') : '—');
     setText('sync-source', sourceLabel);
@@ -1370,7 +1381,7 @@ function renderSyncCard(s) {
         if (APP.syncTimeout && !settled) {
             setText('sync-hint', '触显同步 · 切换超时，请稍后刷新状态（目标 ' + (s.sync_target_hz || '—') + ' Hz）' + lastWrite);
         } else if (settled) {
-            setText('sync-hint', '触显同步 · 已生效：当前刷新率 ' + s.refresh_hz + ' Hz（来源：' + sourceLabel + '）→ 目标采样率 ' + s.sync_target_hz + ' Hz' +
+            setText('sync-hint', '触显同步 · 已生效：当前刷新率 ' + s.refresh_hz + ' Hz（来源：' + sourceShort + '）→ 目标采样率 ' + s.sync_target_hz + ' Hz' +
                 (s.sync_package ? ' · 命中 ' + s.sync_package : '') + lastWrite);
         } else {
             setText('sync-hint', '触显同步 · 切换中…（当前 ' + (s.current_hz || '—') + ' Hz → 目标 ' + (s.sync_target_hz || '—') + ' Hz）' + lastWrite);
@@ -2178,7 +2189,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.13：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.15：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3343,7 +3354,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.13：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.15：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3550,7 +3561,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.13.0';
+var ABOUT_VERSION = 'v5.15.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -4496,6 +4507,7 @@ if (typeof window !== 'undefined') {
         normalizeState: normalizeState,
         renderSyncCard: renderSyncCard,
         syncSourceLabel: syncSourceLabel,
+        syncSourceShortLabel: syncSourceShortLabel,
         syncLastWriteText: syncLastWriteText,
         toggleTouchSync: toggleTouchSync,
         SYNC_CONF_PATH: SYNC_CONF_PATH,
