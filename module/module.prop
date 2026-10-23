@@ -1,7 +1,7 @@
 id=gt8pro_touch
 name=慕容触控采样率
-version=5.10
-versionCode=600
+version=5.10.1
+versionCode=601
 author=慕容茹艳（酷安慕容雪绒）
 description=按前台应用自动切换触控采样率（付费授权模块）：免费安装后通过 WebUI 登录/购买（3 元 · 单机永久）→ 服务端下发卡密并绑定设备 → 手动下载付费组件 → 服务端签发 3 天有效租约（自动续期、含 3 天离线宽限）→ 守护进程校验签名/有效期/设备绑定后生效。支持全局默认采样率 + 每应用自定义档位（config/采样率.txt 热更新）、KSU WebUI（主页/配置/日志/用户）、一键收集诊断日志、多机型后端自动探测。支持真我 GT8 Pro（RMX5200）等 ColorOS 17 机型。
 updateJson=https://raw.githubusercontent.com/murongruyan/murongtouch/main/update.json
