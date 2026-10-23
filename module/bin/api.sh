@@ -33,6 +33,12 @@ LEASE_KEY_ID_FILE="$AUTH_DIR/lease_key_id.txt"
 PREMIUM_BIN="$MOD/bin/touch_rate_daemon"
 BASE_API="${BASE_API:-https://murongdiaodu.rl1.cc/api}"
 
+# 【自愈】KSU/Magisk 管理器更新模块时 zip 可能丢失执行位，导致 curl/verify_lease_sig/api.sh 不可执行
+for _f in "$MOD/bin/curl" "$MOD/bin/verify_lease_sig" "$MOD/bin/api.sh"; do
+    [ -f "$_f" ] && [ ! -x "$_f" ] && chmod 755 "$_f" 2>/dev/null
+done
+unset _f
+
 mkdir -p "$AUTH_DIR" 2>/dev/null || true
 
 CURL_BIN=""
@@ -570,6 +576,9 @@ install_premium() {
     cp -f "$DAEMON_BIN" "$PREMIUM_BIN.new" 2>/dev/null || { rm -rf "$TMP_DIR"; err_json "无法写入付费组件"; return 1; }
     chmod 755 "$PREMIUM_BIN.new" 2>/dev/null
     mv -f "$PREMIUM_BIN.new" "$PREMIUM_BIN" 2>/dev/null || { rm -rf "$TMP_DIR"; err_json "安装替换失败"; return 1; }
+    # 安装后同时修复相关工具执行位（部分安装方式会丢失）
+    chmod 755 "$PREMIUM_BIN" "$MOD/bin/verify_lease_sig" "$MOD/bin/curl" "$MOD/bin/api.sh" 2>/dev/null
+
     VERSION=$(premium_version)
     rm -rf "$TMP_DIR"
     printf '{"success":true,"path":"%s","version":"%s","sha256":"%s"}\n' "$(json_escape "$PREMIUM_BIN")" "$(json_escape "$VERSION")" "$(json_escape "$SHA")"
