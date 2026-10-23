@@ -3,6 +3,10 @@
 > 本文件由发布工作流在每次发版时自动在最上方插入新版本段落；也可以手动编辑。
 > 模块内的在线更新（`update.json`）与 Release 说明都会引用本文件。
 
+## v5.18.1 (681) - 2026-10-23
+
+1. release: touch module v5.18 (一键诊断改 collect_diag.sh，修复 busybox 无 zip)
+
 ## v5.17.1 (671) - 2026-10-23
 
 1. release: touch module v5.17 (全局/应用规则冲突提示 + 当前应用徽标)
