@@ -3,6 +3,11 @@
 > 本文件由发布工作流在每次发版时自动在最上方插入新版本段落；也可以手动编辑。
 > 模块内的在线更新（`update.json`）与 Release 说明都会引用本文件。
 
+## v5.17.1 (671) - 2026-10-23
+
+1. release: touch module v5.17 (全局/应用规则冲突提示 + 当前应用徽标)
+2. release: touch module v5.16 (同步配置回读校验/daemon 开关状态)
+
 ## v5.16.1 (661) - 2026-10-23
 
 1. release: touch module v5.16 (同步配置回读校验/daemon 开关状态)
