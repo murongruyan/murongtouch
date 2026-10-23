@@ -1,0 +1,32 @@
+# gt8pro_touch v3.1 采样率配置（UTF-8 / LF 保存，改完 1~2 秒自动生效，无需重启）
+#
+# 格式：
+#   1) 第一个有效行（跳过 # 注释和空行）= 全局采样率（单位 Hz）
+#        180      = 日用默认 180Hz（本模块出厂默认）
+#        0        = 不强制（恢复系统原值，通常 120Hz）
+#        120 / 180 / 240 / 288 / 360 / 400（400 为隐藏档，见文末警告）
+#   2) 其余每行 = "包名 采样率"，该应用在前台时使用指定采样率
+#   3) # 开头为注释
+#
+# 语义：命中规则 → 规则值；未命中且全局 > 0 → 全局值；否则恢复系统原值
+#
+180
+
+# ---- 每应用规则（按需增删）----
+com.tencent.tmgp.sgame 360
+com.miHoYo.hkrpg 360
+com.netease.l22 360
+com.miHoYo.Yuanshen 360
+com.tencent.lolm 360
+com.tencent.tmgp.cod 360
+com.tencent.tmgp.pubgmhd 360
+com.tencent.tmgp.codev 360
+com.netease.yyslscn 360
+com.tencent.tmgp.dfm 360
+com.tencent.tmgp.cf 360
+com.x1y9.probe 360
+
+# ---- 警告 ----
+# 400 = 隐藏高阶档（实测约 385~400Hz，非官方，耗电/稳定性未知，仅尝鲜）
+# 禁止填写 16 及以上的 code（会让触控停止报点）；普通填 Hz 不会碰到
+# 想给单个应用开隐藏档： com.example.game 400

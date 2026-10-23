@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+    <meta name="format-detection" content="telephone=no">
+    <title>慕容触控采样率 v5.0</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="preview-banner" class="preview-banner" hidden>
+        <span class="preview-icon" aria-hidden="true">◐</span>
+        <span>浏览器预览模式 · 使用内置示例数据（在 KernelSU / KsuWebUI 中打开才会执行真实命令）</span>
+    </div>
+
+    <!-- 三栏 Header：左品牌小字 / 中页面大标题 / 右动作小字 -->
+    <header class="app-header">
+        <div class="app-header-inner header-3col">
+            <div class="header-brand">慕容触控采样率</div>
+            <h1 id="page-title" class="header-page-title">主页</h1>
+            <div class="header-actions">
+                <button type="button" id="btn-header-primary" class="header-action">刷新</button>
+                <button type="button" id="btn-header-secondary" class="header-action" hidden>外观</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <!-- ==================== 1. 主页 ==================== -->
+        <section id="pane-home" class="pane is-active" role="tabpanel" aria-label="主页">
+            <div class="alert alert-warn" id="status-alert" hidden></div>
+            <div id="paid-notice" class="alert alert-warn paid-notice" hidden></div>
+
+            <div class="card status-card">
+                <div class="status-card-title">工作状态</div>
+                <div class="status-line">
+                    <span class="status-dot daemon-dot is-unknown" id="daemon-dot" aria-hidden="true"></span>
+                    <span>运行状态</span>
+                    <b id="daemon-text">检测中</b>
+                </div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.0.0</b></div>
+                <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
+                <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
+            </div>
+
+            <div class="section-label">当前采样率</div>
+            <div class="card hero-card">
+                <div class="hero-head">
+                    <span class="hero-label">实时</span>
+                    <span id="hero-flag" class="badge badge-muted">—</span>
+                </div>
+                <div id="hero-rate" class="hero-num tier-unknown">
+                    <span id="cur-hz">--</span><span class="hero-unit">Hz</span>
+                </div>
+                <div class="hero-sub">
+                    <span>目标 <b id="target-hz">--</b> Hz</span>
+                    <span class="dot-sep" aria-hidden="true">·</span>
+                    <span>全局 <b id="global-rate-val">--</b></span>
+                    <span class="dot-sep" aria-hidden="true">·</span>
+                    <span>原始值 <b id="original-hz">--</b> Hz</span>
+                </div>
+                <p id="rate-mismatch" class="mismatch-hint" hidden>目标与实际采样率不一致，守护进程会在约 1.5 秒后自动纠正。</p>
+                <div class="hero-actions">
+                    <button type="button" id="btn-read-rate" class="btn btn-secondary">读取当前采样率</button>
+                    <button type="button" id="btn-measure" class="btn btn-primary">真实报点率测试</button>
+                </div>
+                <pre id="measure-out" class="pre" hidden>—</pre>
+            </div>
+
+            <div class="section-label">快捷操作</div>
+            <div class="card row-card">
+                <button type="button" id="btn-reload" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 5v6h-6"/></svg></span>
+                    <span class="row-main"><span class="row-title">重载配置</span><span class="row-sub">发送 SIGHUP 重新读取 config/采样率.txt</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-restart" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v8"/><path d="M6.5 6.5a8 8 0 1 0 11 0"/></svg></span>
+                    <span class="row-main"><span class="row-title">重启守护进程</span><span class="row-sub">采样率短暂恢复原值后重新应用规则</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-restore120" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-2"/></svg></span>
+                    <span class="row-main"><span class="row-title">恢复默认 120Hz</span><span class="row-sub">直接调用 --set-rate 120</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-restore-original" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span>
+                    <span class="row-main"><span class="row-title">恢复系统原值</span><span class="row-sub">按启动时捕获的原值恢复</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <div class="section-label">设备信息</div>
+            <div class="card list-card">
+                <div class="pref-row">
+                    <div class="pref-main"><span class="pref-title">前台应用</span><span id="fg-src" class="pref-summary">来源 —</span></div>
+                    <span id="fg-pkg" class="pref-value mono">—</span>
+                </div>
+                <div class="pref-divider" aria-hidden="true"></div>
+                <div class="pref-row">
+                    <div class="pref-main"><span class="pref-title">规则命中</span><span id="matched-rule" class="pref-summary">未命中规则</span></div>
+                    <span id="matched-state" class="pref-value">—</span>
+                </div>
+                <div class="pref-divider" aria-hidden="true"></div>
+                <div class="pref-row">
+                    <div class="pref-main"><span class="pref-title">后端通道</span><span class="pref-summary">采样率下发方式</span></div>
+                    <span id="backend-val" class="pref-value">—</span>
+                </div>
+                <div class="pref-divider" aria-hidden="true"></div>
+                <div class="pref-row">
+                    <div class="pref-main"><span class="pref-title">守护进程</span><span id="daemon-ver" class="pref-summary">—</span></div>
+                    <span id="daemon-pid" class="pref-value">—</span>
+                </div>
+            </div>
+
+            <div class="section-label section-label-danger">危险操作</div>
+            <div class="card row-card">
+                <button type="button" id="btn-uninstall" class="row-btn row-btn-danger">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg></span>
+                    <span class="row-main"><span class="row-title">卸载模块</span><span class="row-sub">写入 remove 标记，重启手机后移除</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <p class="meta-line"><span id="last-update">尚未刷新</span> · 状态每 2.5 秒自动刷新</p>
+        </section>
+
+        <!-- ==================== 2. 配置 ==================== -->
+        <section id="pane-config" class="pane" role="tabpanel" aria-label="配置" hidden>
+            <div class="alert alert-warn">
+                <b>风险提示：</b>400Hz 为隐藏高阶档，耗电与稳定性未知；后端 code ≥ 16 会导致触控停止报点，本界面会拒绝非法值。
+                <span id="config-400-warn" hidden><br>当前配置包含 400Hz，请确认风险。</span>
+            </div>
+            <div class="alert alert-info" id="config-notice" hidden></div>
+
+            <div class="section-label">采样率</div>
+            <div class="card">
+                <div class="row-inline-head">
+                    <span class="row-title">全局采样率</span>
+                    <span class="tag" id="rules-count-tag">0 条规则</span>
+                </div>
+                <div class="pill-row" id="global-rate-pills" role="group" aria-label="全局采样率">
+                    <button type="button" class="pill-option" data-global-rate="0">0 · 不强制</button>
+                    <button type="button" class="pill-option" data-global-rate="120">120</button>
+                    <button type="button" class="pill-option" data-global-rate="180">180</button>
+                    <button type="button" class="pill-option" data-global-rate="240">240</button>
+                    <button type="button" class="pill-option" data-global-rate="288">288</button>
+                    <button type="button" class="pill-option" data-global-rate="360">360</button>
+                    <button type="button" class="pill-option" data-global-rate="400">400</button>
+                </div>
+                <p class="hint">未命中应用规则时使用：<b>0 = 不强制</b>（恢复系统原值）。</p>
+            </div>
+
+            <div class="section-label-row">
+                <span class="section-label">应用规则</span>
+                <span class="tag" id="app-list-meta">检测中…</span>
+            </div>
+            <div class="card">
+                <div class="search-row">
+                    <input type="search" id="app-search" class="input search-input" placeholder="搜索应用名或包名" autocomplete="off">
+                    <button type="button" id="btn-refresh-apps" class="btn btn-small btn-secondary">刷新</button>
+                </div>
+                <div id="app-list" class="app-list"><div class="app-list-loading">正在加载应用…</div></div>
+                <div id="save-result" class="inline-result" hidden></div>
+                <p class="hint">点应用行选择采样率；已配置规则的应用置顶；所有修改实时写入 config/采样率.txt 并 SIGHUP 热重载。</p>
+            </div>
+
+            <div class="section-label">全局默认</div>
+            <div class="card global-default-card">
+                <div class="row-static">
+                    <span class="row-main"><span class="row-title">全局默认采样率</span><span class="row-sub">命中应用规则时以规则为准</span></span>
+                    <span id="global-default-value" class="row-value">0 · 不强制</span>
+                </div>
+            </div>
+
+                        <p class="meta-line">配置修改会实时写入 config/采样率.txt 并热重载，无需手动保存。</p></section>
+
+        <!-- ==================== 3. 日志 ==================== -->
+        <section id="pane-logs" class="pane" role="tabpanel" aria-label="日志" hidden>
+            <div class="section-label">诊断信息</div>
+            <div class="card">
+                <p class="hint">一键收集：daemon/service 日志尾部、状态 JSON、后端探测、main_register、机型/ROM/内核/模块版本、采样率配置等，打包后可直接分享给开发者。</p>
+                <button type="button" id="btn-collect-diag" class="btn btn-primary btn-block">一键收集诊断信息</button>
+                <div id="diag-result" class="inline-result" hidden>
+                    <div class="diag-path-label">已生成诊断包</div>
+                    <div id="diag-path" class="diag-path mono">—</div>
+                    <button type="button" id="btn-share-diag" class="btn btn-secondary btn-block">分享诊断包</button>
+                </div>
+                <p class="hint" id="diag-hint">生成位置：/sdcard/Download/gt8pro_touch_diag_&lt;时间&gt;.zip</p>
+            </div>
+
+            <div class="section-label">日志管理</div>
+            <div class="card row-card">
+                <button type="button" id="btn-clear-log" class="row-btn row-btn-danger">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg></span>
+                    <span class="row-main"><span class="row-title">清空日志</span><span class="row-sub">截断 config/daemon.log（不可恢复）</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-refresh-raw-log" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 5v6h-6"/></svg></span>
+                    <span class="row-main"><span class="row-title">刷新原始日志</span><span class="row-sub">仅供开发者反馈问题使用</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <details class="card raw-card">
+                <summary>
+                    <span>查看原始日志（开发者）</span>
+                    <span class="chevron" aria-hidden="true">›</span>
+                </summary>
+                <p id="raw-log-meta" class="meta-line">尚未加载</p>
+                <pre id="raw-log-pre" class="pre raw-log-pre">点击「刷新原始日志」加载最近 200 行。</pre>
+            </details>
+        </section>
+
+        <!-- ==================== 4. 用户（付费化 v5） ==================== -->
+        <section id="pane-user" class="pane" role="tabpanel" aria-label="用户" hidden>
+            <div class="section-label">账号</div>
+            <div class="card" id="paid-account-card">
+                <div class="paid-placeholder">正在读取账号…</div>
+            </div>
+
+            <div class="section-label">授权</div>
+            <div class="card" id="paid-entitlement-card">
+                <div class="paid-placeholder">正在读取授权…</div>
+            </div>
+
+            <div class="section-label">购买</div>
+            <div class="card row-card">
+                <button type="button" id="btn-paid-buy" class="row-btn" data-paid-action="buy">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10h14v10H5z"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+                    <span class="row-main"><span class="row-title">购买授权（3 元 · 单机永久）</span><span class="row-sub">支付成功后自动发放卡密并绑定本机</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-paid-check-order" class="row-btn" data-paid-action="check-order" hidden>
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 5v6h-6"/></svg></span>
+                    <span class="row-main"><span class="row-title">我已完成支付，检查订单</span><span class="row-sub" id="paid-order-hint">支付完成后会自动确认</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <div class="section-label">我的</div>
+            <div class="card row-card">
+                <button type="button" class="row-btn" data-paid-action="licenses">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/></svg></span>
+                    <span class="row-main"><span class="row-title">我的卡密</span><span class="row-sub">查看已购买卡密与绑定设备</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" class="row-btn" data-paid-action="orders">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v14H5z"/><path d="M9 9h6M9 13h4"/></svg></span>
+                    <span class="row-main"><span class="row-title">我的订单</span><span class="row-sub">查看购买记录与支付状态</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" class="row-btn" data-paid-action="download">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10"/><path d="m8 10 4 4 4-4"/><path d="M5 19h14"/></svg></span>
+                    <span class="row-main"><span class="row-title">下载付费组件</span><span class="row-sub" id="paid-premium-status">正在检测…</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-appearance" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4.97 0 9 3.58 9 8 0 2.21-1.79 4-4 4h-1.6c-.9 0-1.4 1.06-.83 1.75l.3.37c.57.69.08 1.88-.8 1.88H12c-4.97 0-9-3.58-9-8s4.03-8 9-8Z"/><circle cx="8" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="10.6" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="15.2" cy="8.3" r="1" fill="currentColor" stroke="none"/><circle cx="17" cy="12.2" r="1" fill="currentColor" stroke="none"/></svg></span>
+                    <span class="row-main"><span class="row-title">外观设置</span><span class="row-sub">背景颜色与主题色</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <div class="section-label">其他</div>
+            <div class="card row-card">
+                <button type="button" class="row-btn" data-paid-action="feedback">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></span>
+                    <span class="row-main"><span class="row-title">反馈</span><span class="row-sub">酷安 @慕容雪绒（仅文字说明）</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.0 · 付费组件单独下载</p>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <span>慕容触控采样率 v5.0</span>
+        <span class="dot-sep" aria-hidden="true">·</span>
+        <span>本地离线 WebUI</span>
+        <span class="dot-sep" aria-hidden="true">·</span>
+        <span id="footer-mode">KernelSU 模式</span>
+    </footer>
+
+    <!-- 悬浮玻璃底栏：近白半透明 + 选中灰色圆形气泡 -->
+    <nav id="bottom-bar" class="bottom-bar" role="tablist" aria-label="页面切换">
+        <div id="bar-glass" class="bar-glass">
+            <span class="bar-sheen" aria-hidden="true"></span>
+            <span class="bar-liquid" aria-hidden="true"></span>
+            <span id="bar-bubble" class="bar-bubble" aria-hidden="true"></span>
+            <button type="button" class="bar-tab is-active" role="tab" aria-selected="true" data-tab="home">
+                <svg class="bar-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5"/><path d="M6 9.8V19h12V9.8"/><path d="M10 19v-5h4v5"/></svg>
+                <span class="bar-label">主页</span>
+            </button>
+            <button type="button" class="bar-tab" role="tab" aria-selected="false" data-tab="config">
+                <svg class="bar-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M17 7h3"/><circle cx="15" cy="7" r="2.1"/><path d="M4 17h3M11 17h9"/><circle cx="9" cy="17" r="2.1"/></svg>
+                <span class="bar-label">配置</span>
+            </button>
+            <button type="button" class="bar-tab" role="tab" aria-selected="false" data-tab="logs">
+                <svg class="bar-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l4 4v12H6z"/><path d="M14.5 4v4.5H19"/><path d="M9 12.5h6M9 16h6"/></svg>
+                <span class="bar-label">日志</span>
+            </button>
+            <button type="button" class="bar-tab" role="tab" aria-selected="false" data-tab="user">
+                <svg class="bar-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.4" r="3.4"/><path d="M5.2 19.4c.9-3.1 3.6-5 6.8-5s5.9 1.9 6.8 5"/></svg>
+                <span class="bar-label">用户</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 应用规则底部 sheet -->
+    <div id="app-rate-sheet" class="drawer" hidden>
+        <div class="drawer-backdrop" data-sheet-close="1"></div>
+        <section class="drawer-sheet sheet-compact" role="dialog" aria-modal="true" aria-labelledby="app-sheet-title">
+            <div class="drawer-handle" aria-hidden="true"></div>
+            <div class="drawer-head">
+                <div class="drawer-head-copy">
+                    <h2 id="app-sheet-title" class="drawer-title">设置应用采样率</h2>
+                    <p id="app-sheet-pkg" class="drawer-subtitle mono">—</p>
+                </div>
+                <button type="button" id="btn-app-sheet-close" class="btn btn-small btn-secondary" data-sheet-close="1">取消</button>
+            </div>
+            <div class="drawer-body">
+                <div class="app-rate-grid" id="app-rate-options" role="group" aria-label="应用采样率">
+                    <button type="button" class="app-rate-option" data-app-rate="remove">跟随全局默认（删除规则）</button>
+                    <button type="button" class="app-rate-option" data-app-rate="120">120 Hz</button>
+                    <button type="button" class="app-rate-option" data-app-rate="180">180 Hz</button>
+                    <button type="button" class="app-rate-option" data-app-rate="240">240 Hz</button>
+                    <button type="button" class="app-rate-option" data-app-rate="288">288 Hz</button>
+                    <button type="button" class="app-rate-option" data-app-rate="360">360 Hz</button>
+                    <button type="button" class="app-rate-option" data-app-rate="400">400 Hz</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ==================== 主题界面（二级页面，用户页「外观设置」进入） ==================== -->
+    <div id="theme-page" class="subpage" hidden>
+        <header class="subpage-header">
+            <div class="app-header-inner header-3col">
+                <button type="button" id="btn-theme-back" class="subpage-back">← 返回</button>
+                <div class="subpage-title-wrap">
+                    <h1 id="theme-page-title" class="header-page-title">主题界面</h1>
+                    <span id="theme-device" class="subpage-device">RMX5200</span>
+                </div>
+                <div class="header-actions">
+                    <button type="button" id="btn-theme-reset" class="header-action">重置</button>
+                </div>
+            </div>
+        </header>
+        <main class="subpage-main">
+            <div class="page-hero">
+                <h2 class="page-hero-title">主题界面</h2>
+                <p class="page-hero-sub">背景与主题色</p>
+            </div>
+
+            <div class="section-label">外观</div>
+            <div class="card note-card">
+                <p>这里统一管理界面背景和主题色，所有修改即时生效。</p>
+            </div>
+
+            <div class="section-label">背景</div>
+            <div class="card">
+                <button type="button" id="btn-bg-color" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4.97 0 9 3.58 9 8 0 2.21-1.79 4-4 4h-1.6c-.9 0-1.4 1.06-.83 1.75l.3.37c.57.69.08 1.88-.8 1.88H12c-4.97 0-9-3.58-9-8s4.03-8 9-8Z"/><circle cx="8" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="10.6" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="15.2" cy="8.3" r="1" fill="currentColor" stroke="none"/><circle cx="17" cy="12.2" r="1" fill="currentColor" stroke="none"/></svg></span>
+                    <span class="row-main"><span class="row-title">背景颜色</span><span id="bg-color-value" class="row-sub">白色 #FFFFFF</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <input type="color" id="bg-color" class="color-input hidden-color" value="#FFFFFF" aria-label="自定义背景颜色">
+            </div>
+
+            <div class="section-label">颜色</div>
+            <div class="card">
+                <button type="button" id="btn-theme-mode" class="row-btn">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 4.5v15"/><path d="M12 4.5a7.5 7.5 0 0 1 0 15z" fill="currentColor" stroke="none" opacity=".35"/></svg></span>
+                    <span class="row-main"><span class="row-title">主题模式</span><span id="theme-mode-value" class="row-sub">跟随系统</span></span>
+                    <span class="chevron">›</span>
+                </button>
+                <div class="row-divider" aria-hidden="true"></div>
+                <div class="swatch-block">
+                    <div id="accent-swatches" class="swatches swatches-check" role="group" aria-label="主题颜色">
+                        <button type="button" class="swatch is-active" data-accent="#F663A6" style="--swatch:#F663A6" aria-label="项目粉"></button>
+                        <button type="button" class="swatch" data-accent="#3482FF" style="--swatch:#3482FF" aria-label="蓝"></button>
+                        <button type="button" class="swatch" data-accent="#AF52DE" style="--swatch:#AF52DE" aria-label="紫"></button>
+                        <button type="button" class="swatch" data-accent="#34C759" style="--swatch:#34C759" aria-label="绿"></button>
+                        <button type="button" class="swatch" data-accent="#FF9500" style="--swatch:#FF9500" aria-label="橙"></button>
+                    </div>
+                    <p class="card-note">主题颜色 · 影响文字、开关、滑块与底栏强调色</p>
+                </div>
+                <div class="row-divider" aria-hidden="true"></div>
+                <div class="row-btn row-btn-static">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19h4L19 9l-4-4L5 15z"/><path d="M13 7l4 4"/></svg></span>
+                    <span class="row-main"><span class="row-title">文字颜色</span><span id="text-color-value" class="row-sub mono">自动（跟随主题色）</span></span>
+                    <input type="color" id="text-color" class="color-input" value="#F663A6" aria-label="文字颜色">
+                </div>
+                <div class="row-divider" aria-hidden="true"></div>
+                <button type="button" id="btn-theme-reset-row" class="row-btn row-btn-danger">
+                    <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg></span>
+                    <span class="row-main"><span class="row-title">恢复默认</span><span class="row-sub">主题色 / 文字颜色 / 白色背景 / 跟随系统</span></span>
+                    <span class="chevron">›</span>
+                </button>
+            </div>
+
+            <p class="meta-line">主题设置保存在本机（localStorage），可随时恢复默认。</p>
+        </main>
+    </div>
+
+    <!-- 通用底部选项 sheet（背景颜色 / 主题模式） -->
+    <div id="option-sheet" class="drawer" hidden>
+        <div class="drawer-backdrop" data-option-close="1"></div>
+        <section class="drawer-sheet sheet-compact" role="dialog" aria-modal="true" aria-labelledby="option-sheet-title">
+            <div class="drawer-handle" aria-hidden="true"></div>
+            <div class="drawer-head">
+                <h2 id="option-sheet-title" class="drawer-title">选择</h2>
+                <button type="button" id="btn-option-sheet-close" class="btn btn-small btn-secondary" data-option-close="1">取消</button>
+            </div>
+            <div class="drawer-body">
+                <div id="option-sheet-list" class="option-list"></div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 付费流程弹层（登录/购买/卡密/订单/下载） -->
+    <div id="paid-overlay" class="paid-overlay" hidden>
+        <div class="paid-overlay-backdrop" data-paid-close="1"></div>
+        <section class="paid-sheet" role="dialog" aria-modal="true" aria-labelledby="paid-overlay-title">
+            <div class="paid-sheet-head">
+                <h3 id="paid-overlay-title" class="paid-sheet-title">提示</h3>
+                <button type="button" class="btn btn-small btn-secondary" data-paid-close="1">关闭</button>
+            </div>
+            <div id="paid-overlay-body" class="paid-sheet-body"></div>
+            <div id="paid-overlay-actions" class="paid-sheet-actions"></div>
+        </section>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <div id="modal" class="modal" hidden>
+        <div class="modal-backdrop" data-modal-cancel="1"></div>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <h3 id="modal-title" class="modal-title">确认操作</h3>
+            <p id="modal-body" class="modal-body"></p>
+            <div class="modal-actions">
+                <button type="button" id="modal-cancel" class="btn btn-secondary" data-modal-cancel="1">取消</button>
+                <button type="button" id="modal-ok" class="btn btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
