@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.12 · KernelSU WebUI
+ * 慕容触控采样率 v5.13 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,13 +10,16 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.12.0';
+var WEBUI_VERSION = '5.13.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
 var SERVICE_LOG_PATH = MOD + '/config/service.log';
 var RATE_CONF_PATH = MOD + '/config/rate.conf';
 var SYNC_CONF_PATH = MOD + '/config/触显同步.txt';
+var SYNC_RECHECK_DELAYS = [1200, 2500, 4000];
+var SYNC_SETTLE_TIMEOUT = 6000;
+var SYNC_STATUS_REFRESH_MS = 7000;
 var LICENSE_PATH = MOD + '/config/license.txt';
 var CONFIG_APPLY_DEBOUNCE = 200;
 var API_BASE = 'https://murongdiaodu.rl1.cc/api';
@@ -82,7 +85,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.12.0',
+    moduleVersion: 'v5.13.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -458,7 +461,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.12.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.13.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -516,7 +519,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.12.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.13.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -526,6 +529,8 @@ function mockState() {
         sync_target_hz: MOCK.syncEnabled ? MOCK.syncTargetHz : 0,
         sync_source: MOCK.syncEnabled ? 'display_module' : 'fallback',
         sync_package: MOCK.syncEnabled ? MOCK.syncPkg : '',
+        last_write_target_hz: MOCK.syncEnabled ? MOCK.syncTargetHz : 0,
+        last_write_ok: !!MOCK.syncEnabled,
         display_module_installed: !!MOCK.displayModuleInstalled,
         probe: MOCK.removed
             ? { hbp: false, proc_rate: false, white_list: false, legacy_hidl: false, touchDaemon_pid: 0, detail: '模块已标记卸载' }
@@ -580,7 +585,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.12.0 后端探测报告',
+            return ['touch_rate_daemon v5.13.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -682,6 +687,7 @@ function normalizeState(raw) {
         sync_enabled: toBool(s.sync_enabled), refresh_hz: toNumber(s.refresh_hz, 0),
         sync_target_hz: toNumber(s.sync_target_hz, 0), sync_source: str(s.sync_source),
         sync_package: str(s.sync_package || s.sync_pkg || s.sync_app),
+        last_write_target_hz: toNumber(s.last_write_target_hz, 0), last_write_ok: toBool(s.last_write_ok),
         display_module_installed: toBool(s.display_module_installed),
         degraded: !!s.degraded, unavailable: !!s.unavailable
     };
@@ -804,7 +810,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.12：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.13：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1331,11 +1337,16 @@ function syncSourceLabel(source) {
     return value || '—';
 }
 
+function syncLastWriteText(s) {
+    if (!s || s.last_write_target_hz <= 0) return '';
+    return ' · 最后写入 ' + s.last_write_target_hz + ' Hz' + (s.last_write_ok ? '（成功）' : '（失败）');
+}
+
 function renderSyncCard(s) {
     var toggle = $('sync-toggle');
     var supported = !!(s && s.sync_supported);
     if (toggle) {
-        toggle.disabled = !supported;
+        toggle.disabled = !supported || !!APP.syncSwitching;
         toggle.checked = supported ? !!s.sync_enabled : false;
     }
     if (!supported) {
@@ -1349,10 +1360,21 @@ function renderSyncCard(s) {
     setText('sync-refresh', s.refresh_hz > 0 ? (s.refresh_hz + ' Hz') : '—');
     setText('sync-target', s.sync_target_hz > 0 ? (s.sync_target_hz + ' Hz') : '—');
     setText('sync-source', sourceLabel);
+    var lastWrite = syncLastWriteText(s);
+    if (APP.syncSwitching) {
+        setText('sync-hint', '触显同步 · 切换中…（目标 ' + (s.sync_target_hz || '—') + ' Hz）');
+        return;
+    }
     if (s.sync_enabled) {
-        var flow = '当前刷新率 ' + (s.refresh_hz || '—') + ' Hz（来源：' + sourceLabel + '）→ 目标采样率 ' + (s.sync_target_hz || '—') + ' Hz';
-        if (s.sync_package) flow += ' · 命中 ' + s.sync_package;
-        setText('sync-hint', flow);
+        var settled = s.sync_target_hz > 0 && s.current_hz > 0 && s.current_hz === s.sync_target_hz;
+        if (APP.syncTimeout && !settled) {
+            setText('sync-hint', '触显同步 · 切换超时，请稍后刷新状态（目标 ' + (s.sync_target_hz || '—') + ' Hz）' + lastWrite);
+        } else if (settled) {
+            setText('sync-hint', '触显同步 · 已生效：当前刷新率 ' + s.refresh_hz + ' Hz（来源：' + sourceLabel + '）→ 目标采样率 ' + s.sync_target_hz + ' Hz' +
+                (s.sync_package ? ' · 命中 ' + s.sync_package : '') + lastWrite);
+        } else {
+            setText('sync-hint', '触显同步 · 切换中…（当前 ' + (s.current_hz || '—') + ' Hz → 目标 ' + (s.sync_target_hz || '—') + ' Hz）' + lastWrite);
+        }
     } else if (s.display_module_installed) {
         setText('sync-hint', '开启后跟随显示模块刷新率自动切换');
     } else {
@@ -1368,19 +1390,60 @@ async function toggleTouchSync(enabled) {
         return;
     }
     if (toggle) toggle.disabled = true;
+    APP.syncSwitching = true;
+    APP.syncTimeout = false;
+    renderSyncCard(APP.state);
+    if (APP.syncPollTimers && APP.syncPollTimers.length) {
+        APP.syncPollTimers.forEach(function (timer) { clearTimeout(timer); });
+    }
+    APP.syncPollTimers = [];
+    var finish = function () {
+        if (APP.syncPollTimers && APP.syncPollTimers.length) {
+            APP.syncPollTimers.forEach(function (timer) { clearTimeout(timer); });
+        }
+        APP.syncPollTimers = [];
+    };
+    var checkSettled = async function () {
+        if (!APP.syncSwitching) return;
+        if (!APP.statusLoading) {
+            await refreshStatus();
+        }
+        var state = APP.state;
+        if (!state) return;
+        var settled = enabled
+            ? (state.sync_enabled && state.sync_target_hz > 0 && state.current_hz > 0 && state.current_hz === state.sync_target_hz)
+            : !state.sync_enabled;
+        if (settled) {
+            APP.syncSwitching = false;
+            APP.syncTimeout = false;
+            finish();
+            renderSyncCard(state);
+        }
+    };
     try {
         await runCommand(CMD.writeSyncConfig(b64urlEncode(enabled ? '1' : '0')), { timeout: 15000 });
         await runCommand(CMD.reload(), { timeout: 20000 });
-        toast(enabled ? '触显同步已开启' : '触显同步已关闭', 'ok');
-        await sleep(500);
-        await refreshStatus();
+        toast(enabled ? '触显同步已开启，正在切换…' : '触显同步已关闭', 'ok');
     } catch (e) {
+        APP.syncSwitching = false;
+        APP.syncTimeout = false;
+        finish();
         toast('设置失败：' + (e && e.message ? e.message : e), 'err', 3200);
         renderSyncCard(APP.state);
-    } finally {
-        var current = $('sync-toggle');
-        if (current && APP.state) current.disabled = !APP.state.sync_supported;
+        return;
     }
+    SYNC_RECHECK_DELAYS.forEach(function (delay) {
+        APP.syncPollTimers.push(setTimeout(checkSettled, delay));
+    });
+    APP.syncPollTimers.push(setTimeout(function () {
+        if (!APP.syncSwitching) return;
+        APP.syncSwitching = false;
+        APP.syncTimeout = true;
+        finish();
+        renderSyncCard(APP.state);
+    }, SYNC_SETTLE_TIMEOUT));
+    await sleep(300);
+    await checkSettled();
 }
 
 function renderHome() {
@@ -1416,7 +1479,7 @@ function renderHome() {
     }
     var mismatch = $('rate-mismatch');
     if (mismatch) {
-        var show = !s.degraded && !s.unavailable && s.target_hz > 0 && s.current_hz > 0 && s.current_hz !== s.target_hz;
+        var show = !APP.syncSwitching && !s.sync_enabled && !s.degraded && !s.unavailable && s.target_hz > 0 && s.current_hz > 0 && s.current_hz !== s.target_hz;
         mismatch.hidden = !show;
         if (show) mismatch.textContent = '目标 ' + s.target_hz + ' Hz，当前 ' + s.current_hz + ' Hz：守护进程会在约 1.5 秒后自动纠正。';
     }
@@ -2115,7 +2178,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.12：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.13：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -3280,7 +3343,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.12：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.13：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3487,7 +3550,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.12.0';
+var ABOUT_VERSION = 'v5.13.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -4191,6 +4254,12 @@ function bindBaseControls() {
     var read = $('btn-read-rate'); if (read) read.addEventListener('click', readCurrentRate);
     var measure = $('btn-measure'); if (measure) measure.addEventListener('click', measureRate);
     var syncToggle = $('sync-toggle'); if (syncToggle) syncToggle.addEventListener('change', function () { toggleTouchSync(syncToggle.checked); });
+    if (!APP.syncStatusTimer) {
+        APP.syncStatusTimer = setInterval(function () {
+            if (document.hidden || APP.tab !== 'home' || APP.statusLoading || APP.syncSwitching) return;
+            refreshStatus({ silent: true });
+        }, SYNC_STATUS_REFRESH_MS);
+    }
     var headerPrimary = $('btn-header-primary'); if (headerPrimary) headerPrimary.addEventListener('click', headerPrimaryAction);
     var headerSecondary = $('btn-header-secondary'); if (headerSecondary) headerSecondary.addEventListener('click', headerSecondaryAction);
 }
@@ -4427,6 +4496,7 @@ if (typeof window !== 'undefined') {
         normalizeState: normalizeState,
         renderSyncCard: renderSyncCard,
         syncSourceLabel: syncSourceLabel,
+        syncLastWriteText: syncLastWriteText,
         toggleTouchSync: toggleTouchSync,
         SYNC_CONF_PATH: SYNC_CONF_PATH,
         mockState: mockState,

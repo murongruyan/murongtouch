@@ -3672,6 +3672,9 @@ body.subpage-open .app-footer {
 }
 
 .update-changelog {
+    max-height: 240px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     margin-top: 6px;
     padding: 10px 12px;
     border-radius: 10px;
@@ -3690,7 +3693,7 @@ body.subpage-open .app-footer {
     font-size: 13px;
 }
 
-/* v5.12 触显同步卡片 */
+/* v5.13 触显同步卡片 */
 .sync-card {
     margin-top: 0;
 }
