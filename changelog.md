@@ -3,6 +3,10 @@
 > 本文件由发布工作流在每次发版时自动在最上方插入新版本段落；也可以手动编辑。
 > 模块内的在线更新（`update.json`）与 Release 说明都会引用本文件。
 
+## v5.0.3 (503) - 2026-10-23
+
+1. docs: 安装说明改为 Release 资产名 murongtouch-vX.Y.Z.zip（同时保留本地打包产物名）
+
 ## v5.0.2 (502) - 2026-10-23
 
 1. fix: Release 资产名改为 ASCII（GitHub 会丢弃中文资产名），update.json zipUrl 与 Release 资产保持一致
