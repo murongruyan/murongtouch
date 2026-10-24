@@ -135,6 +135,12 @@ wait_sys_boot_completed
 wait_touch_daemon
 migrate_config
 
+# 模块更新后 KSU 可能重置模块目录：从持久备份恢复登录 token / 授权 / 用户配置
+if [ -f "$MODDIR/bin/api.sh" ]; then
+    chmod 755 "$MODDIR/bin/api.sh" 2>/dev/null
+    sh "$MODDIR/bin/api.sh" state_restore >/dev/null 2>&1
+fi
+
 # 触控优化设置项：清单见 common.sh 的 SETTINGS_LIST / PROPS_LIST，
 # action.sh / uninstall.sh 按同一清单还原，禁止在别处另写清单。
 if tweaks_apply "$LOG_FILE"; then

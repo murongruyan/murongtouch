@@ -1,5 +1,5 @@
 /* ============================================================
- * 慕容触控采样率 v5.18 · KernelSU WebUI
+ * 慕容触控采样率 v5.21 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
@@ -10,7 +10,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.18.0';
+var WEBUI_VERSION = '5.21.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -20,6 +20,8 @@ var SYNC_CONF_PATH = MOD + '/config/触显同步.txt';
 var SYNC_RECHECK_DELAYS = [1200, 2500, 4000];
 var SYNC_SETTLE_TIMEOUT = 6000;
 var SYNC_STATUS_REFRESH_MS = 7000;
+var ADAPTED_MODELS = ['RMX5200'];
+var PAID_DEVICE_CACHE_MS = 10 * 60 * 1000;
 var LICENSE_PATH = MOD + '/config/license.txt';
 var CONFIG_APPLY_DEBOUNCE = 200;
 var API_BASE = 'https://murongdiaodu.rl1.cc/api';
@@ -85,7 +87,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.18.0',
+    moduleVersion: 'v5.21.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -336,6 +338,8 @@ var CMD = {
     paidDeviceInfo: function () { return 'sh "' + API_SCRIPT + '" auth_device_info'; },
     paidSaveAccount: function (b64) { return 'sh "' + API_SCRIPT + '" auth_save_account "' + b64 + '"'; },
     paidClearAccount: function () { return 'sh "' + API_SCRIPT + '" auth_clear_account'; },
+    paidStateRestore: function () { return 'sh "' + API_SCRIPT + '" state_restore'; },
+    paidStateBackup: function () { return 'sh "' + API_SCRIPT + '" state_backup'; },
     paidSaveLease: function (b64) { return 'sh "' + API_SCRIPT + '" auth_save_lease "' + b64 + '"'; },
     paidSaveEntitlement: function (b64) { return 'sh "' + API_SCRIPT + '" auth_save_entitlement "' + b64 + '"'; },
     paidPremiumState: function () { return 'sh "' + API_SCRIPT + '" premium_state'; },
@@ -464,7 +468,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.18.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.21.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -522,7 +526,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.18.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.21.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -588,7 +592,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.18.0 后端探测报告',
+            return ['touch_rate_daemon v5.21.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -814,7 +818,7 @@ function sanitizeLicenseCode(code) { return str(code).toUpperCase().replace(/[^A
  * 8. 外观 / 主题界面（v4.2：纯白默认、动态背景、玻璃参数、二级页）
  * ============================================================ */
 /* ============================================================
- * 8. 外观 / 主题界面（v5.18：纯色背景 白/黑/跟随系统/自定义 + 主题色）
+ * 8. 外观 / 主题界面（v5.21：纯色背景 白/黑/跟随系统/自定义 + 主题色）
  * ============================================================ */
 function cloneDefaultAppearance() {
     var d = DEFAULT_APPEARANCE;
@@ -1455,6 +1459,7 @@ async function guardConfigChange(changeFn) {
         if (!ok) return;
         await writeSyncConfigVerified('0');
         await runCommand(CMD.reload(), { timeout: 20000 });
+        await backupPaidState();
         toast('已关闭触显同步，正在应用配置', 'ok');
         await changeFn();
         await sleep(250);
@@ -1595,6 +1600,7 @@ async function toggleTouchSync(enabled) {
     try {
         await writeSyncConfigVerified(enabled ? '1' : '0');
         await runCommand(CMD.reload(), { timeout: 20000 });
+        await backupPaidState();
         toast(enabled ? '触显同步已开启，正在切换…' : '触显同步已关闭', 'ok');
     } catch (e) {
         APP.syncSwitching = false;
@@ -1623,6 +1629,7 @@ async function toggleTouchSync(enabled) {
 function renderHome() {
     var s = APP.state;
     if (!s) return;
+    renderModelAlert(s);
     renderSyncCard(s);
     renderConfigStatus(s);
     setText('cur-hz', s.current_hz > 0 ? String(s.current_hz) : '--');
@@ -2119,6 +2126,7 @@ async function applyConfigNow() {
         updateRulesCount();
         if (hasSentinel(reload, '__HUP_OK__')) {
             setConfigResult('已生效 ✓ 配置已写入并热重载', 'ok');
+            await backupPaidState();
             await sleep(150);
             await refreshStatus();
             await pollConfigApplied();
@@ -2271,7 +2279,7 @@ async function paidApi(method, path, options) {
     var raw = await runCommand(CMD.apiRequest(
         method, path, options.auth === true, payload ? b64urlEncode(payload) : '',
         options.nonce ? randomRequestNonce() : '', options.form === true
-    ), { timeout: API_TIMEOUT });
+    ), { timeout: options.timeout || (APP.paid.loginFast ? 8000 : API_TIMEOUT) });
     var resp = paidParseJson(raw, '授权服务');
     if (resp.refresh_token) await persistPaidRefreshToken(resp.refresh_token);
     if (resp.success === false || resp.error) {
@@ -2335,9 +2343,23 @@ function paidDeviceQuery() {
 async function refreshPaidState(options) {
     options = options || {};
     try {
-        var auth = paidParseJson(await runCommand(CMD.paidAuthState(), { timeout: 30000 }), '授权状态');
-        var device = paidParseJson(await runCommand(CMD.paidDeviceInfo(), { timeout: 30000 }), '设备信息');
-        var premium = paidParseJson(await runCommand(CMD.paidPremiumState(), { timeout: 30000 }), '付费组件状态');
+        var auth = paidParseJson(await runCommand(CMD.paidAuthState(), { timeout: options.fast ? 8000 : 30000 }), '授权状态');
+        var device = APP.paid.device;
+        var deviceStale = !device || !APP.paid.deviceFetchedAt || (Date.now() - APP.paid.deviceFetchedAt > PAID_DEVICE_CACHE_MS);
+        if (deviceStale) {
+            try {
+                var deviceOut = await runCommand(CMD.paidDeviceInfo(), { timeout: options.fast ? 6000 : 30000 });
+                device = paidParseJson(deviceOut, '设备信息');
+                APP.paid.deviceFetchedAt = Date.now();
+            } catch (eDevice) {
+                if (!device) device = {};
+            }
+        }
+        var premium = APP.paid.premium || {};
+        try {
+            var premiumOut = await runCommand(CMD.paidPremiumState(), { timeout: options.fast ? 6000 : 30000 });
+            premium = paidParseJson(premiumOut, '付费组件状态');
+        } catch (ePremium) { /* 使用缓存 */ }
         APP.paid.auth = auth;
         APP.paid.device = device;
         APP.paid.premium = premium;
@@ -2371,6 +2393,41 @@ async function clearPaidSession(silent) {
     updatePaidNotice();
 }
 
+async function ensurePaidStateRestored() {
+    if (APP.paid.stateRestored) return true;
+    APP.paid.stateRestored = true;
+    try {
+        var out = await runCommand(CMD.paidStateRestore(), { timeout: 8000 });
+        return hasSentinel(out, '"restored":true') || hasSentinel(out, '"success":true');
+    } catch (e) { return false; }
+}
+
+async function backupPaidState() {
+    try { await runCommand(CMD.paidStateBackup(), { timeout: 8000 }); return true; }
+    catch (e) { return false; }
+}
+
+function isAdaptedModel(model) {
+    var value = String(model || '').trim().toUpperCase();
+    if (!value) return true;
+    return ADAPTED_MODELS.indexOf(value) >= 0;
+}
+
+function renderModelAlert(state) {
+    var s = state || APP.state || {};
+    var model = String(s.model || (APP.paid.device && APP.paid.device.device_model) || '').trim();
+    var text = '';
+    if (model && !isAdaptedModel(model)) {
+        text = '当前机型 ' + model + ' 尚未适配：触控通道可能不可用，采样率可能不生效';
+    }
+    ['model-alert', 'paid-model-alert'].forEach(function (id) {
+        var node = $(id);
+        if (!node) return;
+        node.hidden = !text;
+        node.textContent = text;
+    });
+}
+
 async function paidValidateToken() {
     if (!paidLoggedIn()) return false;
     try {
@@ -2381,7 +2438,7 @@ async function paidValidateToken() {
     }
 }
 
-/* ---------- 授权同步（v5.18：SignedLease claims.expires_at + 顺序重试） ---------- */
+/* ---------- 授权同步（v5.21：SignedLease claims.expires_at + 顺序重试） ---------- */
 function normalizeSignedLease(data, localDeviceHash) {
     var lease = data && typeof data === 'object' ? data : {};
     if (lease && lease.lease && typeof lease.lease === 'object') lease = lease.lease;
@@ -2566,16 +2623,17 @@ async function syncPaidAuthorization(options) {
         /* 3) lease（失败最多重试 3 次，间隔 1.5s） */
         var leaseResult = null;
         var lastErr = null;
-        for (var attempt = 1; attempt <= 3; attempt++) {
+        var leaseAttempts = options.fast ? 1 : 3;
+        for (var attempt = 1; attempt <= leaseAttempts; attempt++) {
             var result = await refreshLease(true);
             if (result) { leaseResult = result; break; }
             lastErr = new Error('租约尚未生效');
-            if (attempt < 3) await sleep(1500);
+            if (attempt < leaseAttempts) await sleep(1500);
         }
         /* 4) auth_state 读取 + 写 state + 再刷新一次展示 */
-        await refreshPaidState({ silent: true });
+        await refreshPaidState({ silent: true, fast: !!options.fast });
         await saveEntitlementCache();
-        await refreshPaidState({ silent: true });
+        if (!options.fast) await refreshPaidState({ silent: true });
         var auth = APP.paid.auth || {};
         var entitled = auth.entitlement === 'active' || auth.entitlement === 'grace';
         var ok = entitled && Number(auth.lease_valid) === 1;
@@ -2607,10 +2665,17 @@ async function ensureLeaseFresh(silent) {
     }
 }
 
-async function loadPaidTab() {
-    await refreshPaidState({ silent: true });
+async function loadPaidTab(options) {
+    options = options || {};
+    await ensurePaidStateRestored();
+    await refreshPaidState({ silent: true, fast: !!options.login });
     await paidValidateToken();
-    await syncPaidAuthorization({ silent: true });
+    if (options.login) APP.paid.loginFast = true;
+    try {
+        return await syncPaidAuthorization({ silent: true, fast: !!options.login });
+    } finally {
+        APP.paid.loginFast = false;
+    }
 }
 
 /* ---------- 页面渲染 ---------- */
@@ -2642,6 +2707,7 @@ function paidStatusSummary(auth) {
     var status = String(a.entitlement || 'unknown');
     var days = Number(a.lease_days_left || 0);
     var leaseValid = Number(a.lease_valid) === 1;
+    if (APP.paid.loginSyncing && !(leaseValid && days > 0)) return '已登录 · 正在同步授权…';
     if (status === 'active') {
         if (leaseValid && days > 0) return '已授权 · 单机永久 · 租约剩余 ' + days + ' 天';
         if (String(a.lease_expires_at || '')) return '已授权 · 单机永久 · 租约已过期，请续租';
@@ -2745,6 +2811,7 @@ function paidPremiumText() {
 }
 
 function renderPaidPage() {
+    renderModelAlert(APP.state);
     renderPaidAccount();
     renderPaidEntitlement();
     applyPurchaseVisibility();
@@ -2888,9 +2955,41 @@ async function doPaidLogin(username, password) {
             user_id: String(data.user_id || ''),
             token: data.token
         }))), '保存登录状态');
+        APP.paid.auth = {
+            account: 'logged_in',
+            username: data.username || username,
+            user_id: String(data.user_id || ''),
+            token_present: 1,
+            entitlement: 'unknown',
+            license_last4: ''
+        };
+        APP.paid.entitlement = null;
+        APP.paid.loginSyncing = true;
+        APP.paid.loginFast = true;
+        renderPaidPage();
         closePaidOverlay();
-        toast('登录成功', 'ok');
-        await loadPaidTab();
+        toast('登录成功，正在同步授权…', 'ok', 3000);
+        try {
+            await loadPaidTab({ login: true });
+            var authNow = APP.paid.auth || {};
+            var entitledNow = (authNow.entitlement === 'active' || authNow.entitlement === 'grace') && Number(authNow.lease_valid) === 1;
+            if (entitledNow) {
+                toast('已授权 · 单机永久 · 卡密尾号 ' + (authNow.license_last4 || '—'), 'ok', 3600);
+            } else {
+                setTimeout(function () {
+                    syncPaidAuthorization({ silent: true }).then(function () {
+                        APP.paid.loginSyncing = false;
+                        renderPaidPage();
+                    });
+                }, 1500);
+            }
+        } finally {
+            var loginAuth = APP.paid.auth || {};
+            var stillSyncing = (loginAuth.entitlement === 'active' || loginAuth.entitlement === 'grace') && Number(loginAuth.lease_valid) !== 1;
+            if (!stillSyncing) APP.paid.loginSyncing = false;
+            APP.paid.loginFast = false;
+            renderPaidPage();
+        }
     } catch (e) {
         setText('paid-form-hint', '登录失败：' + (e && e.message ? e.message : e));
         toast('登录失败：' + (e && e.message ? e.message : e), 'err', 3600);
@@ -3546,7 +3645,7 @@ function paidListOverlay(title, items, renderItem, emptyText) {
     showPaidOverlay(title, html, [{ label: '关闭', className: 'btn-secondary', onClick: closePaidOverlay }]);
 }
 
-/* ---------- 我的卡密（v5.18：仅展示，无解绑/删除按钮） ---------- */
+/* ---------- 我的卡密（v5.21：仅展示，无解绑/删除按钮） ---------- */
 function licenseStatusLabel(status) {
     var value = String(status || '').toLowerCase();
     if (value === 'active') return '已激活';
@@ -3753,7 +3852,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.18.0';
+var ABOUT_VERSION = 'v5.21.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -4628,7 +4727,7 @@ function init() {
     startStatusPolling();
 
     if (APP.isMock) { mockPaidState(); setTimeout(function () { refreshStatus(); }, 600); }
-    refreshPaidState({ silent: true });
+    ensurePaidStateRestored().then(function () { refreshPaidState({ silent: true }); });
 }
 
 function onReady(fn) {
@@ -4705,6 +4804,10 @@ if (typeof window !== 'undefined') {
         renderConfigStatus: renderConfigStatus,
         guardConfigChange: guardConfigChange,
         writeSyncConfigVerified: writeSyncConfigVerified,
+        ensurePaidStateRestored: ensurePaidStateRestored,
+        backupPaidState: backupPaidState,
+        isAdaptedModel: isAdaptedModel,
+        renderModelAlert: renderModelAlert,
         pollConfigApplied: pollConfigApplied,
         notifyConfigApplied: notifyConfigApplied,
         syncLastWriteText: syncLastWriteText,

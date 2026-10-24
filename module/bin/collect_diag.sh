@@ -164,7 +164,7 @@ cp -f "$MOD/config/service.log" "$TMP/daemon/service.log" 2>/dev/null
 sec touch
 ls -la /dev/tcm_hbp* /dev/input 2>/dev/null > "$TMP/touch/dev_ls.txt"
 ls -la /proc/touchpanel 2>/dev/null >> "$TMP/touch/dev_ls.txt"
-find /proc/touchpanel -maxdepth 2 -type f 2>/dev/null | while read -r f; do
+timeout 10 sh -c 'find /proc/touchpanel -maxdepth 2 -type f 2>/dev/null' | while read -r f; do
   echo "===== $f ====="
   cat "$f" 2>/dev/null | head -120
 done > "$TMP/touch/proc_touchpanel.txt" 2>&1
@@ -217,7 +217,8 @@ sec system
 } > "$TMP/system/refresh.txt" 2>&1
 getprop > "$TMP/system/all_props.txt" 2>/dev/null
 {
-  logcat -d -v threadtime -t 2000 2>/dev/null | grep -iE "touch|tcm|hbp|murong|gt8pro" | tail -1000
+  logcat -d -v threadtime -t 3000 2>/dev/null | grep -iE "touch|tcm|hbp|syna|murong|gt8pro|Touch" | tail -1500 > "$TMP/system/logcat_touch.txt"
+logcat -d -v threadtime -t 3000 2>/dev/null > "$TMP/system/logcat_touch_full.txt"
 } > "$TMP/system/logcat_touch.txt" 2>&1
 logcat -d -b crash -t 300 2>/dev/null > "$TMP/system/logcat_crash.txt"
 ls -la /data/adb/modules > "$TMP/system/modules_list.txt" 2>/dev/null
@@ -240,7 +241,28 @@ sec tools
 # 清理过大的内容
 rm -rf "$TMP/module/verify_lease_sig_run.txt" 2>/dev/null
 
+# ============ 7.5 平台/触控控制通道发现（新机型适配用，限时执行） ============
+sec platform
+{
+  echo "=== /proc/devices ==="; timeout 10 cat /proc/devices 2>/dev/null
+  echo; echo "=== /proc/misc ==="; timeout 10 cat /proc/misc 2>/dev/null
+  echo; echo "=== /dev ==="; timeout 10 ls -la /dev 2>/dev/null | head -250
+  echo; echo "=== /dev name matches ==="; timeout 10 find /dev -maxdepth 2 \( -iname '*tcm*' -o -iname '*hbp*' -o -iname '*touch*' -o -iname '*syna*' \) 2>/dev/null | head -50
+  echo; echo "=== binder services ==="; timeout 15 service list 2>/dev/null | grep -iE 'touch|hbp|syna|display' | head -60
+  echo; echo "=== lshal ==="; timeout 15 lshal 2>/dev/null | grep -iE 'touch|hbp' | head -60
+  echo; echo "=== fd -> touch devices ==="; timeout 20 sh -c 'ls -l /proc/[0-9]*/fd 2>/dev/null | grep -E "tcm|hbp|touch|syna"' | head -120
+  echo; echo "=== sysfs candidates ==="; timeout 20 find /sys/class /sys/kernel /sys/module /sys/bus -maxdepth 4 \( -iname '*touch*' -o -iname '*hbp*' -o -iname '*syna*' -o -iname '*tcm*' \) 2>/dev/null | head -150
+  echo; echo "=== debugfs candidates ==="; timeout 10 ls -la /sys/kernel/debug 2>/dev/null | head -30; timeout 10 find /sys/kernel/debug -maxdepth 3 \( -iname '*touch*' -o -iname '*hbp*' -o -iname '*syna*' \) 2>/dev/null | head -80
+  echo; echo "=== kernel modules ==="; timeout 10 ls /sys/module 2>/dev/null | grep -iE 'touch|hbp|syna|tcm|tp_'
+  echo; echo "=== kernel config touch ==="; if [ -r /proc/config.gz ]; then timeout 10 toybox zcat /proc/config.gz 2>/dev/null | grep -iE 'HBP|TOUCH|SYNA|TCM'; fi
+  echo; echo "=== ps ==="; timeout 10 ps -A -o PID,PPID,USER,NAME,ARGS 2>/dev/null | head -250
+  echo; echo "=== touch props ==="; timeout 10 getprop 2>/dev/null | grep -iE 'touch|hbp|tp_|syna'
+  echo; echo "=== dmesg touch ==="; timeout 15 dmesg 2>/dev/null | grep -iE 'hbp|touch-krn|syna|tcm|touchpanel|goodix|novatek|focaltech' | tail -400
+} > "$TMP/platform.txt" 2>&1
+
 # ============ 8. 打包（逐级回退） ============
+
+
 for D in /sdcard/Download /storage/emulated/0/Download /data/local/tmp "$MOD"; do
   [ -d "$D" ] || continue
   probe="$D/.murong_diag_write_test_$$"

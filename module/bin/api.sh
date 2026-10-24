@@ -41,6 +41,43 @@ unset _f
 
 mkdir -p "$AUTH_DIR" 2>/dev/null || true
 
+# ============ 持久化备份/恢复（防止模块更新覆盖 auth/config） ============
+DATA_DIR="${DATA_DIR:-/data/adb/murong_touch}"
+DATA_FILES_AUTH="account.json lease.json state.json device_identity.json device_id.txt"
+DATA_FILES_CFG="采样率.txt 触显同步.txt rate.conf legacy.conf"
+
+state_backup() {
+    mkdir -p "$DATA_DIR" 2>/dev/null || { err_json "无法创建持久数据目录"; return 1; }
+    for f in $DATA_FILES_AUTH; do
+        [ -f "$AUTH_DIR/$f" ] && cp -f "$AUTH_DIR/$f" "$DATA_DIR/$f" 2>/dev/null
+    done
+    for f in $DATA_FILES_CFG; do
+        [ -f "$MOD/config/$f" ] && cp -f "$MOD/config/$f" "$DATA_DIR/$f" 2>/dev/null
+    done
+    date +%s > "$DATA_DIR/last_backup" 2>/dev/null
+    chmod 600 "$DATA_DIR/account.json" "$DATA_DIR/lease.json" "$DATA_DIR/state.json" "$DATA_DIR/device_identity.json" 2>/dev/null
+    printf '{"success":true,"path":"%s","backup_at":%s}\n' "$(json_escape "$DATA_DIR")" "$(date +%s)"
+}
+
+state_restore() {
+    if [ ! -d "$DATA_DIR" ]; then
+        printf '{"success":true,"restored":false,"reason":"no_backup"}\n'
+        return 0
+    fi
+    mkdir -p "$AUTH_DIR" 2>/dev/null
+    n=0
+    for f in $DATA_FILES_AUTH; do
+        if [ -f "$DATA_DIR/$f" ]; then cp -f "$DATA_DIR/$f" "$AUTH_DIR/$f" 2>/dev/null && n=$((n+1)); fi
+    done
+    for f in $DATA_FILES_CFG; do
+        if [ -f "$DATA_DIR/$f" ]; then cp -f "$DATA_DIR/$f" "$MOD/config/$f" 2>/dev/null && n=$((n+1)); fi
+    done
+    printf '{"success":true,"restored":true,"path":"%s","files":%s}\n' "$(json_escape "$DATA_DIR")" "$n"
+}
+state_persist_backup() { state_backup >/dev/null 2>&1; }
+
+
+
 CURL_BIN=""
 [ -x "$MOD/bin/curl" ] && CURL_BIN="$MOD/bin/curl"
 if [ -z "$CURL_BIN" ]; then CURL_BIN=$(command -v curl 2>/dev/null); fi
@@ -593,6 +630,8 @@ case "$ACTION" in
     auth_save_entitlement) auth_save_entitlement "${2:-}" ;;
     auth_clear_account) auth_clear_account ;;
     auth_clear_lease) auth_clear_lease ;;
+    state_backup) state_backup ;;
+    state_restore) state_restore ;;
     auth_auto_renew) auth_auto_renew ;;
     auth_device_info) device_json ;;
     premium_state) premium_state ;;
@@ -603,3 +642,6 @@ case "$ACTION" in
         exit 1
         ;;
 esac
+
+# 自动镜像：任何操作结束后把当前 auth/config 备份到持久目录（读操作也无害）
+[ "$ACTION" != "state_restore" ] && state_persist_backup
