@@ -45,6 +45,8 @@ mkdir -p "$AUTH_DIR" 2>/dev/null || true
 DATA_DIR="${DATA_DIR:-/data/adb/murong_touch}"
 DATA_FILES_AUTH="account.json lease.json state.json device_identity.json device_id.txt"
 DATA_FILES_CFG="采样率.txt 触显同步.txt rate.conf legacy.conf"
+PREMIUM_AUTO_LOG="$DATA_DIR/premium_auto.log"
+PREMIUM_AUTO_LOCK="$DATA_DIR/premium_auto.lock"
 
 state_backup() {
     mkdir -p "$DATA_DIR" 2>/dev/null || { err_json "无法创建持久数据目录"; return 1; }
@@ -75,6 +77,131 @@ state_restore() {
     printf '{"success":true,"restored":true,"path":"%s","files":%s}\n' "$(json_escape "$DATA_DIR")" "$n"
 }
 state_persist_backup() { state_backup >/dev/null 2>&1; }
+
+# ============ 通知 / 自动补装付费组件 ============
+premium_log() {
+    mkdir -p "$DATA_DIR" 2>/dev/null || true
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date 2>/dev/null)" "$1" >> "$PREMIUM_AUTO_LOG" 2>/dev/null || true
+}
+
+notify_touch() {
+    MESSAGE="$1"
+    if command -v cmd >/dev/null 2>&1; then
+        cmd notification post -S bigtext -t "慕容触控采样率" murong_touch "$MESSAGE" >/dev/null 2>&1 && return 0
+    fi
+    if command -v log >/dev/null 2>&1; then
+        log -t "murong_touch" "$MESSAGE" >/dev/null 2>&1 || true
+    fi
+    premium_log "NOTIFY $MESSAGE"
+    return 0
+}
+
+auto_install_premium() {
+    device_identity >/dev/null 2>&1 || true
+    DEVICE_HASH=$(json_str "$AUTH_DIR/device_identity.json" device_id_hash)
+    [ -n "$DEVICE_HASH" ] || DEVICE_HASH=$(json_str "$AUTH_DIR/device_identity.json" device_id)
+    TOKEN_VALUE=$(json_str "$ACCOUNT_FILE" token)
+    if [ -z "$TOKEN_VALUE" ]; then
+        printf '{"success":false,"error":"no_account","message":"未登录"}\n'
+        return 0
+    fi
+    mkdir -p "$DATA_DIR" 2>/dev/null || true
+    if ! mkdir "$PREMIUM_AUTO_LOCK" 2>/dev/null; then
+        premium_log "SKIP 已有自动安装任务运行中"
+        printf '{"success":false,"error":"locked","message":"自动安装任务进行中"}\n'
+        return 0
+    fi
+    AUTO_LOCK_HELD=1
+    auto_cleanup() {
+        if [ "${AUTO_LOCK_HELD:-0}" = "1" ]; then
+            rmdir "$PREMIUM_AUTO_LOCK" 2>/dev/null || true
+            AUTO_LOCK_HELD=0
+        fi
+    }
+    auto_fail() {
+        AUTO_ERR="$1"; AUTO_MSG="$2"
+        premium_log "FAIL $AUTO_ERR $AUTO_MSG"
+        auto_cleanup
+        notify_touch "付费组件自动安装失败：$AUTO_MSG"
+        printf '{"success":false,"error":"%s","message":"%s"}\n' "$(json_escape "$AUTO_ERR")" "$(json_escape "$AUTO_MSG")"
+        return 0
+    }
+    premium_log "START device_hash=$DEVICE_HASH"
+    HTTP_CODE_FILE="$DATA_DIR/.premium_http_code"
+    rm -f "$HTTP_CODE_FILE"
+    API_HTTP_CODE_FILE="$HTTP_CODE_FILE"
+    NONCE=$(gen_nonce 2>/dev/null || printf 'auto-1')
+    PKG_RESP=$(api_request GET "v1/touch/packages?device_id_hash=$DEVICE_HASH&channel=stable" 1 "" "$NONCE" 0)
+    HTTP_CODE=$(cat "$HTTP_CODE_FILE" 2>/dev/null || printf '')
+    rm -f "$HTTP_CODE_FILE"
+    case "$HTTP_CODE" in
+        '') auto_fail network "组件列表网络请求失败"; return 0 ;;
+        *[!0-9]*) auto_fail bad_response "组件列表响应异常"; return 0 ;;
+    esac
+    if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+        auto_fail "http_$HTTP_CODE" "组件列表请求失败（HTTP $HTTP_CODE）"
+        return 0
+    fi
+    PKG_ID=$(printf '%s' "$PKG_RESP" | tr '{' '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+    PKG_SHA=$(printf '%s' "$PKG_RESP" | tr '{' '\n' | sed -n 's/.*"file_sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    [ -n "$PKG_SHA" ] || PKG_SHA=$(printf '%s' "$PKG_RESP" | tr '{' '\n' | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    if [ -z "$PKG_ID" ]; then
+        auto_fail list_empty "组件列表为空或不兼容"
+        return 0
+    fi
+    INSTALLED_SHA=$(sha256_file "$PREMIUM_BIN")
+    if [ -f "$PREMIUM_BIN" ] && [ -n "$PKG_SHA" ] && [ "$INSTALLED_SHA" = "$PKG_SHA" ]; then
+        premium_log "UP_TO_DATE pkg=$PKG_ID sha=$PKG_SHA"
+        auto_cleanup
+        printf '{"success":true,"status":"up_to_date","package_id":%s,"sha256":"%s"}\n' "$PKG_ID" "$(json_escape "$PKG_SHA")"
+        return 0
+    fi
+    DEVICE_BODY=$(b64url_encode_text "$(tr -d '\r\n' < "$AUTH_DIR/device_identity.json" 2>/dev/null)")
+    NONCE2=$(gen_nonce 2>/dev/null || printf 'auto-2')
+    rm -f "$HTTP_CODE_FILE"
+    API_HTTP_CODE_FILE="$HTTP_CODE_FILE"
+    TOKEN_RESP=$(api_request POST "v1/touch/packages/$PKG_ID/download-token" 1 "$DEVICE_BODY" "$NONCE2" 0)
+    HTTP_CODE=$(cat "$HTTP_CODE_FILE" 2>/dev/null || printf '')
+    rm -f "$HTTP_CODE_FILE"
+    if [ "$HTTP_CODE" != "200" ]; then
+        auto_fail "http_${HTTP_CODE:-network}" "下载令牌获取失败（HTTP ${HTTP_CODE:-网络错误}）"
+        return 0
+    fi
+    DL_TOKEN=$(printf '%s' "$TOKEN_RESP" | sed -n 's/.*"download_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    [ -n "$DL_TOKEN" ] || DL_TOKEN=$(printf '%s' "$TOKEN_RESP" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    DL_URL=$(printf '%s' "$TOKEN_RESP" | sed -n 's/.*"download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    if [ -z "$DL_TOKEN" ]; then
+        auto_fail token_failed "下载令牌为空"
+        return 0
+    fi
+    ZIP_PATH="/data/local/tmp/gt8pro_premium_auto.zip"
+    rm -f "$ZIP_PATH"
+    DL_RESP=$(download_premium "$PKG_ID" "$DL_TOKEN" "$ZIP_PATH" "$DL_URL")
+    case "$DL_RESP" in
+        *'"success":true'*) ;;
+        *) auto_fail download_failed "付费组件下载失败"; return 0 ;;
+    esac
+    DL_SHA=$(printf '%s' "$DL_RESP" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    if [ -n "$PKG_SHA" ] && [ -n "$DL_SHA" ] && [ "$PKG_SHA" != "$DL_SHA" ]; then
+        rm -f "$ZIP_PATH"
+        auto_fail sha_mismatch "下载文件 SHA-256 与组件清单不一致"
+        return 0
+    fi
+    INSTALL_RESP=$(install_premium "$ZIP_PATH")
+    case "$INSTALL_RESP" in
+        *'"success":true'*) ;;
+        *) auto_fail install_failed "付费组件安装失败"; return 0 ;;
+    esac
+    NEW_VERSION=$(printf '%s' "$INSTALL_RESP" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    NEW_SHA=$(printf '%s' "$INSTALL_RESP" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    premium_log "INSTALLED pkg=$PKG_ID version=$NEW_VERSION sha=$NEW_SHA"
+    auto_cleanup
+    notify_touch "付费组件已自动更新到 ${NEW_VERSION:-最新版}"
+    printf '{"success":true,"status":"installed","package_id":%s,"version":"%s","sha256":"%s"}\n' \
+        "$PKG_ID" "$(json_escape "$NEW_VERSION")" "$(json_escape "$NEW_SHA")"
+    return 0
+}
+
 
 
 
@@ -632,6 +759,8 @@ case "$ACTION" in
     auth_clear_lease) auth_clear_lease ;;
     state_backup) state_backup ;;
     state_restore) state_restore ;;
+    auto_install_premium) auto_install_premium ;;
+    notify) notify_touch "${2:-}" ;;
     auth_auto_renew) auth_auto_renew ;;
     auth_device_info) device_json ;;
     premium_state) premium_state ;;

@@ -1,7 +1,8 @@
 /* ============================================================
- * 慕容触控采样率 v5.21 · KernelSU WebUI
+ * 慕容触控采样率 v5.22 · KernelSU WebUI
  * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
+ * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化卡片（touch_tuning.conf）。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
  * ============================================================ */
 'use strict';
@@ -10,7 +11,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.21.0';
+var WEBUI_VERSION = '5.22.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -39,6 +40,16 @@ var MODULE_PROP_PATH = MOD + '/module.prop';
 var DAEMON_BIN = MOD + '/bin/touch_rate_daemon';
 var RATE_CTL_BIN = MOD + '/bin/rate_ctl';
 var DIAG_DIR = '/sdcard/Download';
+
+/* v5.22：付费组件自动补装 */
+var PREMIUM_AUTO_INSTALL_TIMEOUT = 180000;
+var PREMIUM_AUTO_RETRY_MS = 10 * 60 * 1000;
+var PREMIUM_MIN_COMPONENT_VERSION = '5.0.0';
+
+/* v5.22：触控优化（可选，默认全部关闭；配置缺失=不修改系统设置） */
+var TOUCH_TUNING_DIR = '/data/adb/murong_touch';
+var TOUCH_TUNING_PATH = TOUCH_TUNING_DIR + '/touch_tuning.conf';
+var TOUCH_TUNING_APPLY_SCRIPT = MOD + '/bin/apply_touch_tuning.sh';
 
 var ANY_HZ = [120, 180, 240, 288, 360, 400];
 var HZ_TO_CODE = { 120: 2, 180: 4, 240: 3, 288: 5, 360: 1, 400: 9 };
@@ -87,7 +98,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.21.0',
+    moduleVersion: 'v5.22.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -104,7 +115,25 @@ var APP = {
         loading: false,
         lastRefresh: 0,
         overlayBusy: false,
-        orderTimer: null
+        orderTimer: null,
+        autoInstall: {
+            loading: false,
+            status: 'idle',
+            error: '',
+            version: '',
+            startedAt: 0,
+            finishedAt: 0,
+            cooldownUntil: 0,
+            done: false
+        }
+    },
+    touchTuning: {
+        loading: false,
+        saving: false,
+        loaded: false,
+        values: {},
+        error: '',
+        lastMessage: ''
     },
     bar: { index: 0 },
     modalResolver: null,
@@ -347,6 +376,16 @@ var CMD = {
         return 'sh "' + API_SCRIPT + '" download_premium ' + pkgId + ' "' + token + '" "' + outZip + '" "' + (downloadUrl || '') + '"';
     },
     paidInstallPremium: function (zipPath) { return 'sh "' + API_SCRIPT + '" install_premium "' + zipPath + '"'; },
+    /* v5.22：自动补装付费组件（api.sh 内部：查最新包 → 下载 → 安装 → 通知） */
+    paidAutoInstallPremium: function () { return 'sh "' + API_SCRIPT + '" auto_install_premium'; },
+    /* v5.22：触控优化配置（KEY=VALUE，UTF-8；目录不存在先 mkdir，写入后回读校验） */
+    readTouchTuning: function () { return 'cat "' + TOUCH_TUNING_PATH + '" 2>/dev/null; true'; },
+    writeTouchTuning: function (b64) {
+        return 'mkdir -p "' + TOUCH_TUNING_DIR + '" 2>/dev/null; echo \'' + b64 + '\' | base64 -d > "' + TOUCH_TUNING_PATH + '" && echo __WRITE_OK__';
+    },
+    deleteTouchTuning: function () { return 'rm -f "' + TOUCH_TUNING_PATH + '" && echo __DELETE_OK__'; },
+    applyTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" apply; echo __APPLY_DONE__'; },
+    restoreTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" restore; echo __RESTORE_DONE__'; },
     collectDiag: function () {
         var MOD_PATH = MOD;
         var script = 'sh "' + MOD_PATH + '/bin/collect_diag.sh"';
@@ -468,7 +507,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.21.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.22.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -495,6 +534,8 @@ var MOCK = {
     syncTargetHz: 120,
     syncPkg: 'com.tencent.tmgp.sgame',
     displayModuleInstalled: true,
+    touchTuningText: '',
+    touchTuningApplied: '',
     apps: [
         { pkg: 'com.tencent.tmgp.sgame', label: '王者荣耀' },
         { pkg: 'com.miHoYo.Yuanshen', label: '原神' },
@@ -526,7 +567,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.21.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.22.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -563,6 +604,21 @@ function mockExec(cmd) {
     var c = String(cmd == null ? '' : cmd);
     if (c.indexOf('api.sh') >= 0) return mockPaidExec(c);
     return sleep(mockDelay(c)).then(function () {
+        /* v5.22：触控优化配置（cat 读取 / base64 写入 / rm -f 删除）与 apply/restore 脚本 */
+        if (c.indexOf('touch_tuning.conf') >= 0) {
+            if (c.indexOf('base64 -d') >= 0) {
+                var ttMatch = c.match(/'([A-Za-z0-9+/=]+)'/);
+                MOCK.touchTuningText = ttMatch ? base64ToUtf8(ttMatch[1]) : '';
+                return '__WRITE_OK__';
+            }
+            if (c.indexOf('rm -f') >= 0) { MOCK.touchTuningText = ''; return '__DELETE_OK__'; }
+            if (c.indexOf('cat ') >= 0) return MOCK.touchTuningText;
+        }
+        if (c.indexOf('apply_touch_tuning.sh') >= 0) {
+            if (c.indexOf(' restore') >= 0) { MOCK.touchTuningApplied = 'restore'; return '__RESTORE_DONE__'; }
+            MOCK.touchTuningApplied = 'apply';
+            return '__APPLY_DONE__';
+        }
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
         if (c.indexOf('changelog.md') >= 0) {
             if (c.indexOf('cdn.jsdelivr.net') >= 0) return '__UPDATE_FAIL__';
@@ -592,7 +648,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.21.0 后端探测报告',
+            return ['touch_rate_daemon v5.22.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -2148,6 +2204,341 @@ async function applyConfigNow() {
 }
 
 /* ============================================================
+ * 12b. v5.22 触控优化（可选，默认全部关闭；配置缺失 = 不修改任何系统设置）
+ * 配置：/data/adb/murong_touch/touch_tuning.conf（KEY=VALUE，UTF-8，目录不存在先 mkdir）
+ * 保存：base64 写文件 → cat 回读校验 → sh "$MOD/bin/apply_touch_tuning.sh" apply
+ * 恢复默认：sh "$MOD/bin/apply_touch_tuning.sh" restore → 删除配置文件
+ * 风险：会修改触摸手感/手势判定，部分机型可能无效；默认不写默认值、不主动改用户设置。
+ * ============================================================ */
+var TOUCH_TUNING_KEYS = ['touch_slop', 'scroll_friction', 'fling_velocity', 'multi_press_timeout', 'long_press_timeout', 'touch_priority', 'vtouch_switch'];
+var TOUCH_TUNING_META = {
+    touch_slop: { label: '触摸容差', kind: 'int', min: 0, max: 100, placeholder: '8', hint: 'setprop view.touch_slop' },
+    scroll_friction: { label: '滚动摩擦', kind: 'float', min: 0.001, max: 1, placeholder: '0.015', hint: 'setprop view.scroll_friction' },
+    fling_velocity: { label: '最小甩动速度', kind: 'int', min: 1, max: 20000, placeholder: '50', hint: 'setprop view.minimum_fling_velocity' },
+    multi_press_timeout: { label: '多按超时（毫秒）', kind: 'int', min: 100, max: 2000, placeholder: '300', hint: 'settings put secure multi_press_timeout' },
+    long_press_timeout: { label: '长按超时（毫秒）', kind: 'int', min: 100, max: 3000, placeholder: '500', hint: 'settings put secure long_press_timeout' },
+    touch_priority: { label: '触控线程优先级', kind: 'signed', min: -20, max: 19, placeholder: '-5', hint: 'renice 触控 HAL / touchDaemon' },
+    vtouch_switch: { label: '虚拟触摸开关', kind: 'switch', min: 0, max: 1, placeholder: '0', hint: 'settings put system vtouch_switch' }
+};
+
+function parseTouchTuningText(text) {
+    var values = {};
+    var keys = [];
+    String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+        var content = stripLineComment(line).trim();
+        if (!content) return;
+        var idx = content.indexOf('=');
+        if (idx <= 0) return;
+        var key = content.slice(0, idx).trim();
+        var value = content.slice(idx + 1).trim();
+        if (TOUCH_TUNING_KEYS.indexOf(key) < 0 || !value) return;
+        if (!Object.prototype.hasOwnProperty.call(values, key)) keys.push(key);
+        values[key] = value;
+    });
+    return { values: values, keys: keys };
+}
+
+function buildTouchTuningText(values) {
+    var src = values && typeof values === 'object' ? values : {};
+    var lines = [
+        '# 慕容触控采样率 v5.22 触控优化配置（KEY=VALUE，UTF-8；# 注释）',
+        '# 由 WebUI「触控优化」卡片生成；「恢复默认」会执行 apply_touch_tuning.sh restore 并删除本文件',
+        '# 键：touch_slop / scroll_friction / fling_velocity / multi_press_timeout / long_press_timeout / touch_priority / vtouch_switch'
+    ];
+    var count = 0;
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        var value = str(src[key]).trim();
+        if (!value) return;
+        lines.push(key + '=' + value);
+        count++;
+    });
+    if (!count) return '';
+    return lines.join('\n') + '\n';
+}
+
+function touchTuningValuesEqual(a, b) {
+    var left = parseTouchTuningText(a).values;
+    var right = parseTouchTuningText(b).values;
+    var leftKeys = Object.keys(left).sort();
+    var rightKeys = Object.keys(right).sort();
+    if (leftKeys.join(',') !== rightKeys.join(',')) return false;
+    for (var i = 0; i < leftKeys.length; i++) {
+        if (left[leftKeys[i]] !== right[rightKeys[i]]) return false;
+    }
+    return true;
+}
+
+function normalizeTouchTuningValue(key, raw) {
+    var meta = TOUCH_TUNING_META[key];
+    if (!meta) return { ok: false, error: '未知配置项 ' + key };
+    var value = str(raw).trim();
+    if (!value) return { ok: false, error: meta.label + '（' + key + '）不能为空' };
+    if (meta.kind === 'float') {
+        if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: meta.label + ' 需要数字，如 ' + meta.placeholder };
+        var num = parseFloat(value);
+        if (!isFinite(num) || num < meta.min || num > meta.max) {
+            return { ok: false, error: meta.label + ' 超出范围（' + meta.min + ' ~ ' + meta.max + '）' };
+        }
+        return { ok: true, value: value };
+    }
+    if (!/^-?\d+$/.test(value)) {
+        return { ok: false, error: meta.label + ' 需要整数' + (meta.kind === 'switch' ? '（0 或 1）' : '，如 ' + meta.placeholder) };
+    }
+    if (meta.kind === 'switch' && value !== '0' && value !== '1') {
+        return { ok: false, error: meta.label + ' 只能是 0 或 1' };
+    }
+    var n = parseInt(value, 10);
+    if (n < meta.min || n > meta.max) {
+        return { ok: false, error: meta.label + ' 超出范围（' + meta.min + ' ~ ' + meta.max + '）' };
+    }
+    return { ok: true, value: value };
+}
+
+function validateTouchTuning(values) {
+    var src = values && typeof values === 'object' ? values : {};
+    var errors = [];
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        if (!Object.prototype.hasOwnProperty.call(src, key)) return;
+        var raw = str(src[key]).trim();
+        if (!raw) return;
+        var check = normalizeTouchTuningValue(key, raw);
+        if (!check.ok) errors.push({ key: key, message: check.error });
+    });
+    return errors;
+}
+
+function touchTuningEnabledKeys(values) {
+    var src = values && typeof values === 'object' ? values : {};
+    return TOUCH_TUNING_KEYS.filter(function (key) {
+        return Object.prototype.hasOwnProperty.call(src, key) && str(src[key]).trim() !== '';
+    });
+}
+
+/* 状态文案：未启用 / 已启用 N 项：key=value… */
+function touchTuningStatusText(values) {
+    var keys = touchTuningEnabledKeys(values);
+    if (!keys.length) return '未启用（不修改系统设置）';
+    return '已启用 ' + keys.length + ' 项：' + keys.map(function (key) { return key + '=' + str(values[key]).trim(); }).join('、');
+}
+
+function updateTouchTuningForm(values) {
+    var src = values && typeof values === 'object' ? values : {};
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        var value = str(src[key]).trim();
+        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
+        var input = document.querySelector('[data-touch-input="' + key + '"]');
+        if (toggle) toggle.checked = value !== '';
+        if (input) {
+            input.value = value;
+            input.disabled = value === '';
+            input.classList.toggle('is-invalid', false);
+        }
+    });
+}
+
+function readTouchTuningForm() {
+    var values = {};
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
+        var input = document.querySelector('[data-touch-input="' + key + '"]');
+        if (!toggle || !toggle.checked) return;
+        values[key] = input ? input.value.trim() : '';
+    });
+    return values;
+}
+
+function renderTouchTuningCard(options) {
+    options = options || {};
+    var st = APP.touchTuning || {};
+    var statusText;
+    if (st.loading) statusText = '读取中…';
+    else if (st.error) statusText = '失败：' + st.error;
+    else statusText = touchTuningStatusText(st.values);
+    setText('touch-tuning-status', statusText);
+    var statusNode = $('touch-tuning-status');
+    if (statusNode) statusNode.style.color = st.error ? 'var(--danger)' : '';
+    /* keepForm：仅切回配置页时保留用户尚未保存的输入，不重置表单 */
+    if (!options.keepForm) updateTouchTuningForm(st.values);
+    var result = $('touch-tuning-result');
+    if (result) {
+        result.hidden = !st.lastMessage;
+        result.textContent = st.lastMessage || '';
+        result.className = 'inline-result' + (st.error ? ' is-err' : '');
+    }
+}
+
+async function writeTouchTuningVerified(text) {
+    var b64 = utf8ToBase64(text);
+    if (!b64) throw new Error('配置编码失败');
+    var out = await runCommand(CMD.writeTouchTuning(b64), { timeout: 20000 });
+    if (!hasSentinel(out, '__WRITE_OK__')) throw new Error('写入配置失败（' + stripSentinels(out || '目录或权限异常') + '）');
+    var readBack = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
+    if (!touchTuningValuesEqual(text, readBack)) throw new Error('配置回读不一致（写入可能失败）');
+    return true;
+}
+
+async function loadTouchTuning(options) {
+    options = options || {};
+    var st = APP.touchTuning;
+    if (st.loading) return false;
+    st.loading = true;
+    st.error = '';
+    try {
+        var out = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
+        var parsed = parseTouchTuningText(out);
+        st.values = parsed.values;
+        st.loaded = true;
+        st.lastMessage = parsed.keys.length ? '' : '未启用：' + TOUCH_TUNING_PATH + ' 不存在或为空（不会修改系统设置）。';
+        return true;
+    } catch (e) {
+        st.loaded = true;
+        st.error = e && e.message ? e.message : String(e);
+        return false;
+    } finally {
+        st.loading = false;
+        if (!options.silent) renderTouchTuningCard();
+    }
+}
+
+async function saveTouchTuning(values) {
+    var st = APP.touchTuning;
+    if (st.saving) return { ok: false, error: '正在保存，请稍后' };
+    var payload = {};
+    var enabledKeys = [];
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        if (!values || !Object.prototype.hasOwnProperty.call(values, key)) return;
+        enabledKeys.push(key);
+        var raw = str(values[key]).trim();
+        if (raw) payload[key] = raw;
+    });
+    if (!enabledKeys.length) {
+        st.lastMessage = '未勾选任何项：请至少启用一项，或点「恢复默认」。';
+        st.error = '';
+        renderTouchTuningCard();
+        return { ok: false, error: st.lastMessage };
+    }
+    var emptyKeys = enabledKeys.filter(function (key) { return !payload[key]; });
+    if (emptyKeys.length) {
+        st.lastMessage = '请填写已勾选项的数值：' + emptyKeys.join('、');
+        st.error = '';
+        renderTouchTuningCard();
+        return { ok: false, error: st.lastMessage };
+    }
+    var errors = validateTouchTuning(payload);
+    if (errors.length) {
+        st.lastMessage = errors[0].message;
+        st.error = '';
+        renderTouchTuningCard();
+        return { ok: false, error: errors[0].message, errors: errors };
+    }
+    st.saving = true;
+    st.error = '';
+    try {
+        var text = buildTouchTuningText(payload);
+        await writeTouchTuningVerified(text);
+        var out = await runCommand(CMD.applyTouchTuning(), { timeout: 30000 });
+        if (!hasSentinel(out, '__APPLY_DONE__')) throw new Error('apply_touch_tuning.sh 执行失败');
+        st.values = payload;
+        st.loaded = true;
+        st.lastMessage = '已保存并应用：' + touchTuningStatusText(payload);
+        renderTouchTuningCard();
+        toast('触控优化已保存并应用（' + Object.keys(payload).length + ' 项）', 'ok', 3200);
+        return { ok: true, values: payload };
+    } catch (e) {
+        st.error = e && e.message ? e.message : String(e);
+        st.lastMessage = '保存失败：' + st.error;
+        renderTouchTuningCard();
+        return { ok: false, error: st.error };
+    } finally {
+        st.saving = false;
+        renderTouchTuningCard();
+    }
+}
+
+async function restoreTouchTuning() {
+    var st = APP.touchTuning;
+    if (st.saving) return { ok: false, error: '正在处理，请稍后' };
+    st.saving = true;
+    st.error = '';
+    try {
+        var out = await runCommand(CMD.restoreTouchTuning(), { timeout: 30000 });
+        var restored = hasSentinel(out, '__RESTORE_DONE__');
+        if (!restored) throw new Error('restore 执行失败');
+        var removed = await runCommand(CMD.deleteTouchTuning(), { timeout: 15000 });
+        if (!hasSentinel(removed, '__DELETE_OK__')) throw new Error('删除配置文件失败');
+        var readBack = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
+        if (parseTouchTuningText(readBack).keys.length) throw new Error('配置文件仍然存在');
+        st.values = {};
+        st.loaded = true;
+        st.lastMessage = '已恢复默认并删除 ' + TOUCH_TUNING_PATH;
+        renderTouchTuningCard();
+        toast('已恢复触控优化默认值', 'ok', 3000);
+        return { ok: true };
+    } catch (e) {
+        st.error = e && e.message ? e.message : String(e);
+        st.lastMessage = '恢复默认失败：' + st.error;
+        renderTouchTuningCard();
+        return { ok: false, error: st.error };
+    } finally {
+        st.saving = false;
+        renderTouchTuningCard();
+    }
+}
+
+async function onSaveTouchTuning() {
+    var st = APP.touchTuning;
+    var values = readTouchTuningForm();
+    var emptyKeys = TOUCH_TUNING_KEYS.filter(function (key) {
+        return Object.prototype.hasOwnProperty.call(values, key) && !str(values[key]).trim();
+    });
+    if (emptyKeys.length) {
+        st.lastMessage = '请填写已勾选项的数值：' + emptyKeys.join('、');
+        st.error = '';
+        renderTouchTuningCard();
+        toast(st.lastMessage, 'warn', 4200);
+        return;
+    }
+    var errors = validateTouchTuning(values);
+    if (errors.length) {
+        st.lastMessage = errors[0].message;
+        renderTouchTuningCard();
+        toast(errors[0].message, 'warn', 4200);
+        return;
+    }
+    var result = await saveTouchTuning(values);
+    if (!result.ok && result.error) toast('保存失败：' + result.error, 'err', 4200);
+}
+
+async function confirmRestoreTouchTuning() {
+    var ok = await confirmDialog({
+        title: '恢复触控优化默认？',
+        message: '将执行 apply_touch_tuning.sh restore 并删除 ' + TOUCH_TUNING_PATH + '（恢复触摸容差/滚动摩擦/甩动速度等系统默认）。',
+        confirmText: '恢复默认',
+        danger: true
+    });
+    if (!ok) return;
+    var result = await restoreTouchTuning();
+    if (!result.ok) toast('恢复默认失败：' + (result.error || '未知原因'), 'err', 4200);
+}
+
+function bindTouchTuningControls() {
+    TOUCH_TUNING_KEYS.forEach(function (key) {
+        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
+        var input = document.querySelector('[data-touch-input="' + key + '"]');
+        if (!toggle || !input) return;
+        toggle.addEventListener('change', function () {
+            input.disabled = !toggle.checked;
+            if (!toggle.checked) input.value = '';
+            input.classList.remove('is-invalid');
+        });
+    });
+    var save = $('btn-touch-tuning-save');
+    if (save) save.addEventListener('click', function () { withBusy(save, '保存中…', onSaveTouchTuning); });
+    var restore = $('btn-touch-tuning-restore');
+    if (restore) restore.addEventListener('click', function () { withBusy(restore, '恢复中…', confirmRestoreTouchTuning); });
+}
+
+/* ============================================================
  * 13. 日志页：一键收集诊断 + 分享 + 清空 + 原始日志（开发者）
  * ============================================================ */
 function diagFailReason(reason) {
@@ -2360,6 +2751,14 @@ async function refreshPaidState(options) {
             var premiumOut = await runCommand(CMD.paidPremiumState(), { timeout: options.fast ? 6000 : 30000 });
             premium = paidParseJson(premiumOut, '付费组件状态');
         } catch (ePremium) { /* 使用缓存 */ }
+        /* 旧 api.sh 无 premium_state 时用 auth_state 的 premium_* 字段兜底（避免误判未安装） */
+        if ((premium.installed === undefined || premium.installed === null) && auth.premium_installed !== undefined) {
+            premium = {
+                installed: Number(auth.premium_installed) === 1 ? 1 : 0,
+                version: str(auth.premium_version),
+                sha256: str(auth.premium_sha256)
+            };
+        }
         APP.paid.auth = auth;
         APP.paid.device = device;
         APP.paid.premium = premium;
@@ -2671,11 +3070,15 @@ async function loadPaidTab(options) {
     await refreshPaidState({ silent: true, fast: !!options.login });
     await paidValidateToken();
     if (options.login) APP.paid.loginFast = true;
+    var result;
     try {
-        return await syncPaidAuthorization({ silent: true, fast: !!options.login });
+        result = await syncPaidAuthorization({ silent: true, fast: !!options.login });
     } finally {
         APP.paid.loginFast = false;
     }
+    /* v5.22：进入用户页即检查是否需要自动补装付费组件（loading/done 防重复） */
+    maybeAutoInstallPremium();
+    return result;
 }
 
 /* ---------- 页面渲染 ---------- */
@@ -2822,6 +3225,7 @@ function renderPaidPage() {
     var checkBtn = $('btn-paid-check-order');
     if (checkBtn) checkBtn.hidden = !(APP.paid.order && APP.paid.order.status !== 'paid');
     setText('paid-order-hint', APP.paid.order && APP.paid.order.order_no ? ('订单号 ' + APP.paid.order.order_no + ' · 支付后自动确认') : '支付完成后会自动确认');
+    renderPaidPremiumCard();
     renderHeader();
 }
 
@@ -2830,8 +3234,13 @@ function updatePaidNotice() {
     if (!node) return;
     var p = APP.paid.premium || {};
     var a = APP.paid.auth || {};
+    var auto = APP.paid.autoInstall || {};
     var message = '';
-    if (p.installed !== 1) {
+    if (auto.loading) {
+        message = '正在自动下载付费组件…';
+    } else if (auto.status === 'failed') {
+        message = '自动安装失败：' + (auto.error || '未知原因') + '。可到用户页点「下载付费组件」手动重试。';
+    } else if (p.installed !== 1) {
         message = '未安装付费组件：请到用户页登录、购买授权并下载付费组件。';
     } else if (!paidEntitled()) {
         if (a.entitlement === 'expired' || a.entitlement === 'revoked') {
@@ -3547,6 +3956,8 @@ async function checkPaidOrder() {
             try { await refreshStatus(); } catch (e2) { /* 静默 */ }
             renderPaymentSuccess(cardKey, syncResult);
             renderPaidPage();
+            /* v5.22：支付成功后 entitlement 变 active，立即尝试自动补装付费组件 */
+            maybeAutoInstallPremium();
         } else if (status === 'expired' || status === 'cancelled' || status === 'delivery_failed') {
             stopPaymentPolling();
             renderPaymentFailure(status);
@@ -3772,6 +4183,10 @@ async function downloadPremiumPackage() {
         var installed = await paidRunJson(CMD.paidInstallPremium(dl.path || PAID_DOWNLOAD_ZIP), '安装付费组件');
         log(100, '安装成功' + (installed.version ? ' · ' + installed.version : '') + (installed.sha256 ? ' · ' + String(installed.sha256).slice(0, 8) : ''), 'ok');
         APP.paid.premium = { installed: 1, version: installed.version || '', sha256: installed.sha256 || '', path: installed.path || '' };
+        /* 手动下载成功：清除自动补装的失败状态，避免卡片继续显示「自动安装失败」 */
+        APP.paid.autoInstall.status = 'success';
+        APP.paid.autoInstall.error = '';
+        APP.paid.autoInstall.done = true;
         try { await refreshPaidState({ silent: true }); } catch (eState) { /* ignore */ }
         try { await refreshStatus(); } catch (eStatus) { /* ignore */ }
         renderPaidPage();
@@ -3806,6 +4221,141 @@ function formatPaidBytes(value) {
     return (n / (1024 * 1024)).toFixed(2) + ' MB';
 }
 
+/* ---------- v5.22：付费组件自动补装 ----------
+ * 场景：模块更新后 KSU 可能重置模块目录，付费 daemon（bin/touch_rate_daemon）丢失；
+ *       或组件版本明显过旧。已登录 + entitlement active 时后台调用
+ *       `sh "$MOD/bin/api.sh" auto_install_premium`（内部查最新包→下载→安装→通知），
+ *       UI 显示「正在自动下载付费组件…」→ 成功刷新为已安装 / 失败给手动下载按钮。
+ * 防重复：loading 标志 + 完成（success/up_to_date）后 done 标记 + 失败 10 分钟冷却。
+ * ------------------------------------------------------------------ */
+function premiumComponentVersion() {
+    var p = APP.paid.premium || {};
+    return str(p.version).trim().replace(/^v/i, '');
+}
+
+function premiumAutoInstallReason() {
+    var p = APP.paid.premium || {};
+    var st = APP.paid.autoInstall || {};
+    if (st.done) return '';
+    if (p.installed !== 1) return 'missing';
+    var version = premiumComponentVersion();
+    if (version && compareVersionStrings(version, PREMIUM_MIN_COMPONENT_VERSION) < 0) return 'stale';
+    return '';
+}
+
+function canAutoInstallPremium() {
+    var st = APP.paid.autoInstall || {};
+    if (st.loading) return false;
+    if (st.done) return false;
+    if (st.cooldownUntil && Date.now() < st.cooldownUntil) return false;
+    if (!paidLoggedIn()) return false;
+    var a = APP.paid.auth || {};
+    if (a.entitlement !== 'active' && a.entitlement !== 'grace') return false;
+    return premiumAutoInstallReason() !== '';
+}
+
+async function autoInstallPremium() {
+    var st = APP.paid.autoInstall;
+    if (st.loading) return false;
+    st.loading = true;
+    st.status = 'downloading';
+    st.error = '';
+    st.startedAt = Date.now();
+    renderPaidPremiumCard();
+    updatePaidNotice();
+    try {
+        var raw = await runCommand(CMD.paidAutoInstallPremium(), { timeout: PREMIUM_AUTO_INSTALL_TIMEOUT });
+        var resp = parseJsonLoose(raw) || {};
+        if (resp.success === true) {
+            st.status = resp.status === 'up_to_date' ? 'up_to_date' : 'success';
+            st.version = str(resp.version || '');
+            st.done = true;
+            st.finishedAt = Date.now();
+            /* 先乐观更新，避免 refreshPaidState 网络/命令失败时仍显示未安装 */
+            if (st.status === 'success') {
+                APP.paid.premium = { installed: 1, version: str(resp.version || ''), sha256: str(resp.sha256 || '') };
+            } else if ((APP.paid.premium || {}).installed !== 1) {
+                APP.paid.premium = Object.assign({}, APP.paid.premium || {}, { installed: 1 });
+            }
+            renderPaidPremiumCard();
+            try { await refreshPaidState({ silent: true }); } catch (eRefresh) { /* ignore */ }
+            try { await refreshStatus({ silent: true }); } catch (eStatus) { /* ignore */ }
+            if (st.status === 'up_to_date') {
+                toast('付费组件已是最新（自动检查完成）', 'ok', 2600);
+            } else {
+                toast('付费组件已自动安装' + (st.version ? '：v' + st.version : '') + '，正在刷新状态', 'ok', 3200);
+            }
+        } else if (resp.error === 'no_account') {
+            st.status = 'skipped';
+            st.error = '未登录，无法自动安装';
+        } else if (resp.error === 'locked') {
+            st.status = 'busy';
+            st.error = '自动安装任务进行中（后台正在处理）';
+        } else {
+            st.status = 'failed';
+            st.error = str(resp.message || resp.error || '未知错误');
+        }
+    } catch (e) {
+        st.status = 'failed';
+        st.error = e && e.message ? e.message : String(e);
+    } finally {
+        st.loading = false;
+        if (st.status === 'failed' || st.status === 'busy') st.cooldownUntil = Date.now() + PREMIUM_AUTO_RETRY_MS;
+        renderPaidPremiumCard();
+        updatePaidNotice();
+    }
+    return st.status === 'success' || st.status === 'up_to_date';
+}
+
+/* 非阻塞触发：init / 进入用户页 / 定时维护 / 支付成功后都可调用 */
+function maybeAutoInstallPremium() {
+    if (!canAutoInstallPremium()) return Promise.resolve(false);
+    return autoInstallPremium();
+}
+
+function renderPaidPremiumCard() {
+    var p = APP.paid.premium || {};
+    var st = APP.paid.autoInstall || {};
+    var installed = p.installed === 1;
+    setText('paid-premium-state', paidPremiumText());
+    setText('paid-premium-version', installed && p.version ? String(p.version) : '—');
+    var tag = $('paid-premium-tag');
+    if (tag) {
+        var tagText = installed ? '已安装' : (APP.paid.autoInstall && APP.paid.autoInstall.loading ? '自动安装中' : '未安装');
+        tag.textContent = tagText;
+        tag.className = 'paid-tag' + (installed ? ' ok' : '');
+    }
+    var hint = $('paid-auto-install-hint');
+    var actions = $('paid-auto-install-actions');
+    var hintText = '';
+    var hintClass = 'paid-hint';
+    if (st.loading) {
+        hintText = '正在自动下载付费组件…';
+    } else if (st.status === 'failed') {
+        hintText = '自动安装失败：' + (st.error || '未知原因') + '。可点下方「下载付费组件」手动重试。';
+        hintClass += ' is-warn';
+    } else if (st.status === 'busy') {
+        hintText = '自动安装任务进行中（后台正在处理），稍后刷新即可。';
+    } else if (st.status === 'success') {
+        hintText = '自动安装完成' + (st.version ? '（v' + st.version + '）' : '') + '，已刷新为已安装。';
+        hintClass += ' is-ok';
+    } else if (st.status === 'up_to_date') {
+        hintText = '付费组件已是最新，无需重复安装。';
+        hintClass += ' is-ok';
+    } else if (st.status === 'skipped') {
+        hintText = '未登录，无法自动补装付费组件；登录并授权后可自动安装。';
+        hintClass += ' is-warn';
+    } else if (!installed) {
+        hintText = paidLoggedIn() ? '检测到未安装付费组件：授权有效时会自动补装，也可手动下载。' : '未安装付费组件：登录并购买授权后可下载。';
+    }
+    if (hint) {
+        hint.hidden = !hintText;
+        hint.textContent = hintText;
+        hint.className = hintClass;
+    }
+    if (actions) actions.hidden = st.status !== 'failed';
+}
+
 /* ---------- 自动续期 ---------- */
 async function paidAutoMaintenance() {
     try {
@@ -3820,6 +4370,7 @@ async function paidAutoMaintenance() {
             await refreshServerEntitlement();
             await refreshPaidState({ silent: true });
         }
+        maybeAutoInstallPremium();
     } catch (e) { /* 静默 */ }
 }
 
@@ -3852,7 +4403,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.21.0';
+var ABOUT_VERSION = 'v5.22.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -4175,9 +4726,10 @@ function mockPaidState() {
             lease: null,
             orders: [],
             orderPolls: 0,
+            autoInstallFail: false,
             premium: { installed: false, version: '', sha256: '' },
             packages: [{
-                id: 1, pkg: 'touch-premium', version: '1.0.0', version_code: 100,
+                id: 1, pkg: 'touch-premium', version: '5.0.0', version_code: 500,
                 sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
                 file_sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
                 file_size: 93472, status: 'active', compatible: true
@@ -4261,6 +4813,22 @@ function mockPaidExec(cmd) {
             version: st.premium.version || '', sha256: st.premium.sha256 || '', size: st.premium.installed ? 93472 : 0
         }));
     }
+    /* v5.22：自动补装付费组件（Mock 在 200ms 后完成，便于验证 loading/防重复调用） */
+    if (action === 'auto_install_premium') {
+        return sleep(200).then(function () {
+            if (!st.account.token) {
+                return JSON.stringify({ success: false, error: 'no_account', message: '未登录' });
+            }
+            if (st.autoInstallFail) {
+                return JSON.stringify({ success: false, error: 'download_failed', message: '付费组件下载失败' });
+            }
+            if (st.premium.installed && !st.autoInstallForce) {
+                return JSON.stringify({ success: true, status: 'up_to_date', package_id: 1, sha256: st.packages[0].sha256 });
+            }
+            st.premium = { installed: true, version: '5.0.0', sha256: st.packages[0].sha256 };
+            return JSON.stringify({ success: true, status: 'installed', package_id: 1, version: '5.0.0', sha256: st.packages[0].sha256 });
+        });
+    }
     if (action === 'auth_clear_account') {
         st.account = { username: '', user_id: '', token: '' };
         st.entitlement = 'unknown';
@@ -4298,11 +4866,11 @@ function mockPaidExec(cmd) {
         }));
     }
     if (action === 'install_premium') {
-        st.premium = { installed: true, version: '1.0.0', sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2' };
+        st.premium = { installed: true, version: '5.0.0', sha256: st.packages[0].sha256 };
         st.entitlement = st.entitlement === 'unknown' ? st.entitlement : st.entitlement;
         return Promise.resolve(JSON.stringify({
-            success: true, path: MOD + '/bin/touch_rate_daemon', version: '1.0.0',
-            sha256: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2'
+            success: true, path: MOD + '/bin/touch_rate_daemon', version: '5.0.0',
+            sha256: st.packages[0].sha256
         }));
     }
     if (action === 'api_request') {
@@ -4506,6 +5074,8 @@ function switchTab(name, updateHash) {
     else if (name === 'config') {
         if (!APP.configLoaded) loadConfig();
         else { updateGlobalDefault(); updateRulesCount(); updateConfigWarnings(); if (APP.apps.length) renderAppList(); }
+        if (!APP.touchTuning.loaded) loadTouchTuning();
+        else renderTouchTuningCard({ keepForm: true });
     }
     else if (name === 'logs') loadRawLog();
     else if (name === 'user') { loadPaidTab(); }
@@ -4716,6 +5286,7 @@ function init() {
     bindBottomBar();
     bindBaseControls();
     bindConfigControls();
+    bindTouchTuningControls();
     bindLogControls();
     bindUserControls();
     bindPaymentControls();
@@ -4727,7 +5298,12 @@ function init() {
     startStatusPolling();
 
     if (APP.isMock) { mockPaidState(); setTimeout(function () { refreshStatus(); }, 600); }
-    ensurePaidStateRestored().then(function () { refreshPaidState({ silent: true }); });
+    /* v5.22：启动时先恢复持久化授权，再判断是否需要自动补装付费组件（已登录+授权有效+组件缺失/过旧） */
+    ensurePaidStateRestored().then(function () {
+        return refreshPaidState({ silent: true });
+    }).then(function () {
+        maybeAutoInstallPremium();
+    });
 }
 
 function onReady(fn) {
@@ -4835,6 +5411,7 @@ if (typeof window !== 'undefined') {
         PAID_LEASE_RENEW_SECONDS: PAID_LEASE_RENEW_SECONDS,
         b64urlEncode: b64urlEncode,
         b64urlDecode: b64urlDecode,
+        randomRequestNonce: randomRequestNonce,
         paidParseJson: paidParseJson,
         paidData: paidData,
         paidArray: paidArray,
@@ -4904,7 +5481,53 @@ if (typeof window !== 'undefined') {
         ABOUT_TRAFFIC_URL: ABOUT_TRAFFIC_URL,
         ABOUT_DONATE_URL: ABOUT_DONATE_URL,
         ABOUT_UPDATE_JSON_URL: ABOUT_UPDATE_JSON_URL,
-        ABOUT_RELEASES_URL: ABOUT_RELEASES_URL,        paidAutoMaintenance: paidAutoMaintenance,        simpleHash: simpleHash,
+        ABOUT_RELEASES_URL: ABOUT_RELEASES_URL,
+        paidAutoMaintenance: paidAutoMaintenance,
+        PREMIUM_AUTO_INSTALL_TIMEOUT: PREMIUM_AUTO_INSTALL_TIMEOUT,
+        PREMIUM_AUTO_RETRY_MS: PREMIUM_AUTO_RETRY_MS,
+        PREMIUM_MIN_COMPONENT_VERSION: PREMIUM_MIN_COMPONENT_VERSION,
+        premiumComponentVersion: premiumComponentVersion,
+        premiumAutoInstallReason: premiumAutoInstallReason,
+        canAutoInstallPremium: canAutoInstallPremium,
+        maybeAutoInstallPremium: maybeAutoInstallPremium,
+        autoInstallPremium: autoInstallPremium,
+        renderPaidPremiumCard: renderPaidPremiumCard,
+        getPaidAutoInstallState: function () { return JSON.parse(JSON.stringify(APP.paid.autoInstall || {})); },
+        resetPaidAutoInstall: function () {
+            APP.paid.autoInstall = { loading: false, status: 'idle', error: '', version: '', startedAt: 0, finishedAt: 0, cooldownUntil: 0, done: false };
+            return APP.paid.autoInstall;
+        },
+        setPaidPremiumState: function (premium) {
+            APP.paid.premium = premium && typeof premium === 'object' ? JSON.parse(JSON.stringify(premium)) : {};
+            return APP.paid.premium;
+        },
+        setPaidAuthState: function (auth) {
+            APP.paid.auth = auth && typeof auth === 'object' ? JSON.parse(JSON.stringify(auth)) : {};
+            return APP.paid.auth;
+        },
+        TOUCH_TUNING_PATH: TOUCH_TUNING_PATH,
+        TOUCH_TUNING_DIR: TOUCH_TUNING_DIR,
+        TOUCH_TUNING_KEYS: TOUCH_TUNING_KEYS,
+        TOUCH_TUNING_META: TOUCH_TUNING_META,
+        parseTouchTuningText: parseTouchTuningText,
+        buildTouchTuningText: buildTouchTuningText,
+        touchTuningValuesEqual: touchTuningValuesEqual,
+        normalizeTouchTuningValue: normalizeTouchTuningValue,
+        validateTouchTuning: validateTouchTuning,
+        touchTuningEnabledKeys: touchTuningEnabledKeys,
+        touchTuningStatusText: touchTuningStatusText,
+        loadTouchTuning: loadTouchTuning,
+        saveTouchTuning: saveTouchTuning,
+        restoreTouchTuning: restoreTouchTuning,
+        renderTouchTuningCard: renderTouchTuningCard,
+        bindTouchTuningControls: bindTouchTuningControls,
+        getTouchTuningState: function () { return JSON.parse(JSON.stringify(APP.touchTuning || {})); },
+        resetTouchTuningState: function () {
+            APP.touchTuning = { loading: false, saving: false, loaded: false, values: {}, error: '', lastMessage: '' };
+            return APP.touchTuning;
+        },
+        simpleHash: simpleHash,
+        sleep: sleep,
         mockExec: mockExec,
         getMockState: function () { return mockState(); },
         getMockConfigText: function () { return MOCK.configText; },
@@ -4912,6 +5535,8 @@ if (typeof window !== 'undefined') {
         getMockLicense: function () { return JSON.parse(JSON.stringify(MOCK.license)); },
         getMockApps: function () { return MOCK.apps.map(function (app) { return { pkg: app.pkg, label: app.label }; }); },
         getMockDeviceId: function () { return MOCK.deviceId; },
+        getMockTouchTuningText: function () { return MOCK.touchTuningText; },
+        getMockTouchTuningApplied: function () { return MOCK.touchTuningApplied; },
         resetMock: function () {
             MOCK.configText = MOCK_INITIAL_CONFIG;
             MOCK.logs = MOCK_INITIAL_LOGS.slice();
@@ -4920,6 +5545,8 @@ if (typeof window !== 'undefined') {
             MOCK.licenseText = '';
             MOCK.license = { activated: false, plan: '', activatedAt: '', code: '' };
             MOCK.manualHz = 0;
+            MOCK.touchTuningText = '';
+            MOCK.touchTuningApplied = '';
             MOCK.paid = null;
         }
     };

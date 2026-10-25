@@ -20,9 +20,8 @@
 # settings 项格式：<namespace>|<key>|<value>
 #   namespace 取值：system / secure / global
 SETTINGS_LIST='
-system|vtouch_switch|0
-secure|multi_press_timeout|200
-secure|long_press_timeout|200
+# v5.22: vtouch_switch / multi_press_timeout / long_press_timeout 不再默认强制修改，
+# 统一由「触控优化」可选配置（/data/adb/murong_touch/touch_tuning.conf）按需开启。
 '
 
 # 系统属性项格式：<prop>|<value>（由 service.sh 用 setprop 设置）

@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.21</title>
+    <title>慕容触控采样率 v5.22</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -42,7 +42,7 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.21.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.22.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
                 <div class="status-line"><span>生效来源</span><b id="effective-source">—</b></div>
@@ -203,7 +203,74 @@
                 </div>
             </div>
 
-                        <p class="meta-line">配置修改会实时写入 config/采样率.txt 并热重载，无需手动保存。</p></section>
+            <div class="section-label">触控优化（实验）</div>
+            <div class="card" id="touch-tuning-card">
+                <div class="alert alert-warn tune-risk">
+                    <b>风险提示：</b>本卡片会修改触摸手感/手势判定（触摸容差、滚动摩擦、甩动速度、多按/长按超时、触控线程优先级、虚拟触摸开关）。
+                    默认全部关闭、不主动改用户设置；部分机型可能无效，甚至导致触控异常，请逐项少量调整并保留「恢复默认」手段。
+                </div>
+                <div class="status-line"><span>当前配置</span><b id="touch-tuning-status">读取中…</b></div>
+                <p class="hint">配置保存到 <code>/data/adb/murong_touch/touch_tuning.conf</code>（KEY=VALUE，UTF-8），保存后立即执行
+                    <code>sh "$MOD/bin/apply_touch_tuning.sh" apply</code>；未勾选任何项时不写文件、不修改系统设置，配置缺失显示「未启用」。</p>
+                <div class="tune-list" id="touch-tuning-list">
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="touch_slop">
+                            <span class="tune-name">触摸容差<span class="tune-key">touch_slop · setprop view.touch_slop</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="touch_slop" placeholder="默认 8" inputmode="decimal" disabled aria-label="touch_slop">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="scroll_friction">
+                            <span class="tune-name">滚动摩擦<span class="tune-key">scroll_friction · setprop view.scroll_friction</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="scroll_friction" placeholder="默认 0.015" inputmode="decimal" disabled aria-label="scroll_friction">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="fling_velocity">
+                            <span class="tune-name">最小甩动速度<span class="tune-key">fling_velocity · setprop view.minimum_fling_velocity</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="fling_velocity" placeholder="默认 50" inputmode="numeric" disabled aria-label="fling_velocity">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="multi_press_timeout">
+                            <span class="tune-name">多按超时<span class="tune-key">multi_press_timeout · settings secure（毫秒）</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="multi_press_timeout" placeholder="默认 300" inputmode="numeric" disabled aria-label="multi_press_timeout">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="long_press_timeout">
+                            <span class="tune-name">长按超时<span class="tune-key">long_press_timeout · settings secure（毫秒）</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="long_press_timeout" placeholder="默认 500" inputmode="numeric" disabled aria-label="long_press_timeout">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="touch_priority">
+                            <span class="tune-name">触控线程优先级<span class="tune-key">touch_priority · renice 触控 HAL / touchDaemon（如 -5）</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="touch_priority" placeholder="如 -5" inputmode="numeric" disabled aria-label="touch_priority">
+                    </div>
+                    <div class="tune-row">
+                        <label class="tune-label">
+                            <input type="checkbox" class="tune-check" data-touch-toggle="vtouch_switch">
+                            <span class="tune-name">虚拟触摸开关<span class="tune-key">vtouch_switch · settings system（0/1）</span></span>
+                        </label>
+                        <input type="text" class="input tune-input" data-touch-input="vtouch_switch" placeholder="0 或 1" inputmode="numeric" disabled aria-label="vtouch_switch">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button type="button" id="btn-touch-tuning-save" class="btn btn-primary">保存并应用</button>
+                    <button type="button" id="btn-touch-tuning-restore" class="btn btn-secondary">恢复默认</button>
+                </div>
+                <div id="touch-tuning-result" class="inline-result" hidden></div>
+            </div>
+
+            <p class="meta-line">配置修改会实时写入 config/采样率.txt 并热重载，无需手动保存。</p></section>
 
         <!-- ==================== 3. 日志 ==================== -->
         <section id="pane-logs" class="pane" role="tabpanel" aria-label="日志" hidden>
@@ -257,6 +324,17 @@
                 <div class="paid-placeholder">正在读取授权…</div>
             </div>
 
+            <div class="section-label">付费组件</div>
+            <div class="card" id="paid-premium-card">
+                <div class="paid-card-title"><strong>付费组件</strong><span id="paid-premium-tag" class="paid-tag">检测中…</span></div>
+                <div class="paid-kv"><span>组件状态</span><b id="paid-premium-state">正在检测…</b></div>
+                <div class="paid-kv"><span>组件版本</span><b id="paid-premium-version">—</b></div>
+                <p id="paid-auto-install-hint" class="paid-hint" hidden></p>
+                <div id="paid-auto-install-actions" class="paid-actions" hidden>
+                    <button type="button" class="btn btn-primary" data-paid-action="download">下载付费组件</button>
+                </div>
+            </div>
+
             <div class="section-label" id="paid-purchase-label">购买</div>
             <div class="card row-card" id="paid-purchase-section">
                 <button type="button" id="btn-paid-buy" class="row-btn" data-paid-action="buy">
@@ -307,12 +385,12 @@
                     <span class="chevron">›</span>
                 </button>
             </div>
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.21 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.22 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.21</span>
+        <span>慕容触控采样率 v5.22</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>

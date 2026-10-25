@@ -156,13 +156,37 @@ if [ ! -x "$MODDIR/bin/touch_rate_daemon" ]; then
     log "请打开 WebUI → 用户 → 登录并下载付费组件后重启模块"
 else
     # 授权/网络相关工具（随模块下发，允许缺失不影响旧版）
-    chmod 755 "$MODDIR/bin/curl" "$MODDIR/bin/verify_lease_sig" "$MODDIR/bin/api.sh" 2>/dev/null || true
+    chmod 755 "$MODDIR/bin/curl" "$MODDIR/bin/verify_lease_sig" "$MODDIR/bin/api.sh" "$MODDIR/bin/collect_diag.sh" "$MODDIR/bin/touchconfig.sh" "$MODDIR/bin/update_status.sh" "$MODDIR/bin/apply_touch_tuning.sh" 2>/dev/null || true
     # 幂等启动守护进程（内部会先停旧实例）
     if daemon_start "$MODDIR" "$LOG_FILE"; then
         log "守护进程日志：$DAEMON_LOG"
         log "提示：可用 WebUI 或 $MODDIR/bin/touch_rate_daemon --json $MODDIR 查看状态"
     else
         log "[WARN] 守护进程未启动，自动采样率功能暂不可用（其余设置项仍生效）"
+    fi
+fi
+
+if [ -x "$MODDIR/bin/api.sh" ]; then
+    (
+        sleep 20
+        AUTO_OUT=$(sh "$MODDIR/bin/api.sh" auto_install_premium 2>/dev/null)
+        case "$AUTO_OUT" in
+            *'"success":true'*|*'"error":"no_account"'*|*'"error":"locked"'*) ;;
+            *) sleep 5; sh "$MODDIR/bin/api.sh" auto_install_premium >/dev/null 2>&1 ;;
+        esac
+    ) >/dev/null 2>&1 &
+fi
+
+# 触控手感优化（可选；配置文件不存在则不修改任何设置）
+if [ -f "$MODDIR/bin/apply_touch_tuning.sh" ] && [ -f "${DATA_DIR:-/data/adb/murong_touch}/touch_tuning.conf" -o -f "$MODDIR/config/touch_tuning.conf" ]; then
+    sh "$MODDIR/bin/apply_touch_tuning.sh" apply >/dev/null 2>&1 &
+fi
+
+# 动态模块描述/授权通知守护（每 10 秒更新 module.prop description）
+if [ -x "$MODDIR/bin/update_status.sh" ] || [ -f "$MODDIR/bin/update_status.sh" ]; then
+    chmod 755 "$MODDIR/bin/update_status.sh" 2>/dev/null
+    if ! pgrep -f "update_status.sh watch" >/dev/null 2>&1; then
+        ( sh "$MODDIR/bin/update_status.sh" watch ) >/dev/null 2>&1 &
     fi
 fi
 
