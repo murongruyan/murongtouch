@@ -3871,3 +3871,150 @@ body.subpage-open .app-footer {
     word-break: break-all;
     text-align: right;
 }
+
+/* ============================================================
+ * 21. v5.23 触控页（「大肥鱼-拼好控」触控选项）+ 五 Tab 底栏适配
+ * ============================================================ */
+/* 底栏 5 个 Tab：等宽收缩，360px 视口不溢出 */
+.bar-tab {
+    min-width: 0;
+}
+
+.bar-tab .bar-label {
+    font-size: 10px;
+}
+
+.bar-tab .bar-icon {
+    width: 23px;
+    height: 23px;
+}
+
+.bar-bubble {
+    width: 58px;
+}
+
+/* 触控页：行内「恢复默认」小按钮 */
+.tune-reset {
+    flex: none;
+    min-height: 34px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-pill);
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: transform .1s ease, opacity .15s ease;
+}
+
+.tune-reset:active {
+    transform: scale(0.95);
+}
+
+.tune-reset:disabled {
+    opacity: 0.55;
+}
+
+/* 触控页：手势内联胶囊 / HAL 原始 value 网格 */
+.touch-inline-pills {
+    margin: 0;
+    flex-wrap: nowrap;
+}
+
+.touch-inline-pills .pill-option {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+.touch-hal-raw {
+    gap: 6px;
+}
+
+.touch-hal-raw .pill-option {
+    min-height: 34px;
+    min-width: 42px;
+    padding: 0 8px;
+    font-size: 12.5px;
+}
+
+/* 触控页：相位偏移 8 项两列网格 */
+.touch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 12px 16px 4px;
+}
+
+.touch-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.touch-field-label {
+    color: var(--row-sub);
+    font-size: 11.5px;
+    line-height: 1.35;
+}
+
+.touch-field .input {
+    min-height: 40px;
+    font-size: 14px;
+}
+
+/* 触控页：高级折叠卡片 */
+.touch-advanced {
+    padding-bottom: 12px;
+}
+
+.touch-advanced > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    color: var(--accent);
+    font-size: 17px;
+    font-weight: 700;
+    list-style: none;
+    cursor: pointer;
+}
+
+.touch-advanced > summary::-webkit-details-marker {
+    display: none;
+}
+
+.touch-advanced > summary .chevron {
+    transition: transform .2s ease;
+}
+
+.touch-advanced[open] > summary .chevron {
+    transform: rotate(90deg);
+}
+
+.touch-advanced .alert {
+    margin: 0 16px 8px;
+}
+
+/* 触控页：卡片内按钮行留出内边距 */
+#pane-touch .btn-row {
+    padding: 0 16px 14px;
+}
+
+#pane-touch .inline-result {
+    margin: 0 16px 12px;
+}
+
+#touch-conf-path {
+    max-width: 62%;
+    word-break: break-all;
+    text-align: right;
+}
+
+/* 主页 VSync 卡片沿用触显同步卡片间距 */
+.vsync-card {
+    margin-top: 0;
+}

@@ -1,8 +1,9 @@
 /* ============================================================
- * 慕容触控采样率 v5.22 · KernelSU WebUI
- * 四页：主页 / 配置 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
+ * 慕容触控采样率 v5.23 · KernelSU WebUI
+ * 五页：主页 / 配置 / 触控 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
- * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化卡片（touch_tuning.conf）。
+ * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化；
+ * v5.23：新增「触控」页（移植「大肥鱼-拼好控」全部触控选项：防抖/HAL/云控/手势/性能/相位/VSync）。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
  * ============================================================ */
 'use strict';
@@ -11,7 +12,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.22.0';
+var WEBUI_VERSION = '5.23.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -50,6 +51,13 @@ var PREMIUM_MIN_COMPONENT_VERSION = '5.0.0';
 var TOUCH_TUNING_DIR = '/data/adb/murong_touch';
 var TOUCH_TUNING_PATH = TOUCH_TUNING_DIR + '/touch_tuning.conf';
 var TOUCH_TUNING_APPLY_SCRIPT = MOD + '/bin/apply_touch_tuning.sh';
+/* v5.23：触控页独立通道（HAL 采样率 / 云控注入） */
+var TOUCHCONFIG_SCRIPT = MOD + '/bin/touchconfig.sh';
+var CLOUD_RATE_SCRIPT = MOD + '/bin/cloud-rate.sh';
+var TOUCH_HAL_RATES = ['default', '180', '240', '298', '307'];
+var TOUCH_HAL_RAW_VALUES = ['value-1', 'value-2', 'value-3', 'value-4', 'value-5', 'value-6',
+    'value-7', 'value-8', 'value-9', 'value-10', 'value-11', 'value-12'];
+var TOUCH_HAL_LABELS = { default: '默认', '180': '180 Hz', '240': '240 Hz', '298': '298 Hz', '307': '307 Hz' };
 
 var ANY_HZ = [120, 180, 240, 288, 360, 400];
 var HZ_TO_CODE = { 120: 2, 180: 4, 240: 3, 288: 5, 360: 1, 400: 9 };
@@ -98,7 +106,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.22.0',
+    moduleVersion: 'v5.23.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -127,13 +135,17 @@ var APP = {
             done: false
         }
     },
-    touchTuning: {
+    touch: {
         loading: false,
         saving: false,
         loaded: false,
-        values: {},
         error: '',
-        lastMessage: ''
+        lastMessage: '',
+        conf: {},
+        confOrder: [],
+        hal: { supported: null, reason: '', path: '', current: '', currentValue: '', selected: '', values: '', error: '' },
+        cloud: { model: '', platform: '', supported: null, db: '', backup: '', sqlite: '', injected: '', error: '', busy: false },
+        vsync: { loaded: false, loading: false, enabled: null, error: '' }
     },
     bar: { index: 0 },
     modalResolver: null,
@@ -384,8 +396,21 @@ var CMD = {
         return 'mkdir -p "' + TOUCH_TUNING_DIR + '" 2>/dev/null; echo \'' + b64 + '\' | base64 -d > "' + TOUCH_TUNING_PATH + '" && echo __WRITE_OK__';
     },
     deleteTouchTuning: function () { return 'rm -f "' + TOUCH_TUNING_PATH + '" && echo __DELETE_OK__'; },
-    applyTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" apply; echo __APPLY_DONE__'; },
-    restoreTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" restore; echo __RESTORE_DONE__'; },
+    applyTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" apply; echo "__APPLY_DONE__:$?"'; },
+    restoreTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" restore; echo "__RESTORE_DONE__:$?"'; },
+    /* v5.23：HAL 采样率（touchconfig.sh） */
+    touchConfigStatus: function () { return 'sh "' + TOUCHCONFIG_SCRIPT + '" status 2>&1'; },
+    touchConfigApply: function (rate) {
+        var value = str(rate).trim();
+        if (TOUCH_HAL_RATES.indexOf(value) < 0 && TOUCH_HAL_RAW_VALUES.indexOf(value) < 0) return '';
+        return 'sh "' + TOUCHCONFIG_SCRIPT + '" apply ' + value + ' 2>&1';
+    },
+    /* v5.23：云控采样率注入（cloud-rate.sh，改写欧加应用增强服务数据库） */
+    cloudRateStatus: function () { return 'sh "' + CLOUD_RATE_SCRIPT + '" status 2>&1'; },
+    cloudRateInject: function () { return 'sh "' + CLOUD_RATE_SCRIPT + '" inject 2>&1'; },
+    cloudRateRestore: function () { return 'sh "' + CLOUD_RATE_SCRIPT + '" restore 2>&1'; },
+    /* v5.23：VSync 状态（settings get global hwui.disable_vsync） */
+    vsyncGet: function () { return 'settings get global hwui.disable_vsync 2>/dev/null'; },
     collectDiag: function () {
         var MOD_PATH = MOD;
         var script = 'sh "' + MOD_PATH + '/bin/collect_diag.sh"';
@@ -507,7 +532,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.22.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.23.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -536,6 +561,25 @@ var MOCK = {
     displayModuleInstalled: true,
     touchTuningText: '',
     touchTuningApplied: '',
+    touchConfWrites: 0,
+    vsyncDisable: 'false',
+    hal: {
+        unsupported: false,
+        path: '/data/vendor/touchconfig/vnd_custom_config_main.xml',
+        values: '9,2,9,4,3,10,2,2,2,2,2,2,8,9,11,2,12',
+        current: 'default',
+        currentValue: '9',
+        selected: ''
+    },
+    cloud: {
+        model: 'RMX5200',
+        platform: 'SM8850',
+        supported: 'yes',
+        db: 'yes',
+        sqlite: 'yes',
+        backup: 'no',
+        injected: '0'
+    },
     apps: [
         { pkg: 'com.tencent.tmgp.sgame', label: '王者荣耀' },
         { pkg: 'com.miHoYo.Yuanshen', label: '原神' },
@@ -567,7 +611,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.22.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.23.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -609,15 +653,86 @@ function mockExec(cmd) {
             if (c.indexOf('base64 -d') >= 0) {
                 var ttMatch = c.match(/'([A-Za-z0-9+/=]+)'/);
                 MOCK.touchTuningText = ttMatch ? base64ToUtf8(ttMatch[1]) : '';
+                MOCK.touchConfWrites = (MOCK.touchConfWrites || 0) + 1;
                 return '__WRITE_OK__';
             }
             if (c.indexOf('rm -f') >= 0) { MOCK.touchTuningText = ''; return '__DELETE_OK__'; }
             if (c.indexOf('cat ') >= 0) return MOCK.touchTuningText;
         }
+        /* v5.23：HAL 采样率（touchconfig.sh status/apply） */
+        if (c.indexOf('touchconfig.sh') >= 0) {
+            if (c.indexOf(' status') >= 0) {
+                if (MOCK.hal.unsupported) {
+                    return ['supported=no', 'reason=config_missing', 'path=' + MOCK.hal.path].join('\n');
+                }
+                return [
+                    'supported=yes',
+                    'path=' + MOCK.hal.path,
+                    'value_list=' + MOCK.hal.values,
+                    'current_value=' + MOCK.hal.currentValue,
+                    'current=' + MOCK.hal.current,
+                    'selected=' + MOCK.hal.selected
+                ].join('\n');
+            }
+            var halMatch = c.match(/touchconfig\.sh"\s+apply\s+(\S+)/);
+            if (halMatch) {
+                var halRate = halMatch[1];
+                if (MOCK.hal.unsupported) return 'error: config_missing';
+                if (TOUCH_HAL_RATES.indexOf(halRate) < 0 && TOUCH_HAL_RAW_VALUES.indexOf(halRate) < 0) return 'error: unsupported_rate:' + halRate;
+                var halValues = { '180': '4', '240': '3', '298': '10', '307': '1' };
+                MOCK.hal.selected = halRate === 'default' ? '' : halRate;
+                if (halRate === 'default') {
+                    MOCK.hal.current = 'default';
+                    MOCK.hal.currentValue = '9';
+                } else if (halRate.indexOf('value-') === 0) {
+                    MOCK.hal.current = 'value-' + halRate.slice(6);
+                    MOCK.hal.currentValue = halRate.slice(6);
+                } else {
+                    MOCK.hal.current = halRate;
+                    MOCK.hal.currentValue = halValues[halRate] || '9';
+                }
+                return 'ok:' + halRate + ' value=' + MOCK.hal.currentValue;
+            }
+        }
+        /* v5.23：云控采样率注入（cloud-rate.sh status/inject/restore） */
+        if (c.indexOf('cloud-rate.sh') >= 0) {
+            if (c.indexOf(' status') >= 0) {
+                return [
+                    'model=' + MOCK.cloud.model,
+                    'platform=' + MOCK.cloud.platform,
+                    'supported=' + MOCK.cloud.supported,
+                    'db=' + MOCK.cloud.db,
+                    'backup=' + MOCK.cloud.backup,
+                    'sqlite=' + MOCK.cloud.sqlite,
+                    'injected=' + MOCK.cloud.injected
+                ].join('\n');
+            }
+            if (c.indexOf(' inject') >= 0) {
+                if (MOCK.cloud.supported !== 'yes') return 'error: 设备 ' + MOCK.cloud.model + ' 无采样率配置';
+                if (MOCK.cloud.db !== 'yes') return 'error: 应用增强服务数据库不存在';
+                MOCK.cloud.injected = '6';
+                MOCK.cloud.backup = 'yes';
+                return 'ok:6';
+            }
+            if (c.indexOf(' restore') >= 0) {
+                MOCK.cloud.injected = '0';
+                return 'ok';
+            }
+        }
+        /* v5.23：VSync 状态 */
+        if (c.indexOf('hwui.disable_vsync') >= 0 && c.indexOf('settings get') >= 0) return MOCK.vsyncDisable;
         if (c.indexOf('apply_touch_tuning.sh') >= 0) {
-            if (c.indexOf(' restore') >= 0) { MOCK.touchTuningApplied = 'restore'; return '__RESTORE_DONE__'; }
+            if (c.indexOf(' restore') >= 0) {
+                MOCK.touchTuningApplied = 'restore';
+                MOCK.vsyncDisable = 'false';
+                return '__RESTORE_DONE__:0';
+            }
+            var appliedConf = parseTouchConf(MOCK.touchTuningText);
+            if (appliedConf.values.vsync_enabled) {
+                MOCK.vsyncDisable = appliedConf.values.vsync_enabled === '1' ? 'false' : 'true';
+            }
             MOCK.touchTuningApplied = 'apply';
-            return '__APPLY_DONE__';
+            return '__APPLY_DONE__:0';
         }
         /* 分享 / 打开链接（分享路径里也含 gt8pro_touch_diag_，需先匹配） */
         if (c.indexOf('changelog.md') >= 0) {
@@ -648,7 +763,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.22.0 后端探测报告',
+            return ['touch_rate_daemon v5.23.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -1353,6 +1468,7 @@ function withBusy(button, label, task) {
 var TAB_META = {
     home: { title: '主页', primary: '刷新', secondary: '' },
     config: { title: '配置', primary: '', secondary: '' },
+    touch: { title: '触控', primary: '刷新', secondary: '' },
     logs: { title: '日志', primary: '刷新', secondary: '' },
     user: { title: '用户', primary: '刷新', secondary: '' }
 };
@@ -1728,6 +1844,7 @@ function renderHome() {
         if (s.degraded) alert.textContent = '当前 daemon 不支持 --json 接口（可能未升级到 v5.10），已降级读取基础状态。';
     }
     setText('last-update', '更新于 ' + timeLine());
+    renderVsyncCard();
     renderHeader();
 }
 
@@ -2204,26 +2321,78 @@ async function applyConfigNow() {
 }
 
 /* ============================================================
- * 12b. v5.22 触控优化（可选，默认全部关闭；配置缺失 = 不修改任何系统设置）
- * 配置：/data/adb/murong_touch/touch_tuning.conf（KEY=VALUE，UTF-8，目录不存在先 mkdir）
- * 保存：base64 写文件 → cat 回读校验 → sh "$MOD/bin/apply_touch_tuning.sh" apply
- * 恢复默认：sh "$MOD/bin/apply_touch_tuning.sh" restore → 删除配置文件
- * 风险：会修改触摸手感/手势判定，部分机型可能无效；默认不写默认值、不主动改用户设置。
+ * 12b. v5.23 触控页（移植「大肥鱼-拼好控」全部触控相关选项）
+ * 配置：/data/adb/murong_touch/touch_tuning.conf（KEY=VALUE，UTF-8）
+ * 原则：所有功能默认关闭/不主动写；只有用户勾选/填写并点「应用」才写入。
+ * 写入流程：cat 读取现有配置 → 只合并本卡片涉及的 key（保留其它卡片/未知 key）→
+ *          base64 写入 → 回读校验 → sh "$MOD/bin/apply_touch_tuning.sh" apply。
+ * 独立通道：HAL 采样率 touchconfig.sh、云控注入 cloud-rate.sh（均手动确认后执行）。
  * ============================================================ */
-var TOUCH_TUNING_KEYS = ['touch_slop', 'scroll_friction', 'fling_velocity', 'multi_press_timeout', 'long_press_timeout', 'touch_priority', 'vtouch_switch'];
-var TOUCH_TUNING_META = {
-    touch_slop: { label: '触摸容差', kind: 'int', min: 0, max: 100, placeholder: '8', hint: 'setprop view.touch_slop' },
-    scroll_friction: { label: '滚动摩擦', kind: 'float', min: 0.001, max: 1, placeholder: '0.015', hint: 'setprop view.scroll_friction' },
-    fling_velocity: { label: '最小甩动速度', kind: 'int', min: 1, max: 20000, placeholder: '50', hint: 'setprop view.minimum_fling_velocity' },
-    multi_press_timeout: { label: '多按超时（毫秒）', kind: 'int', min: 100, max: 2000, placeholder: '300', hint: 'settings put secure multi_press_timeout' },
-    long_press_timeout: { label: '长按超时（毫秒）', kind: 'int', min: 100, max: 3000, placeholder: '500', hint: 'settings put secure long_press_timeout' },
-    touch_priority: { label: '触控线程优先级', kind: 'signed', min: -20, max: 19, placeholder: '-5', hint: 'renice 触控 HAL / touchDaemon' },
-    vtouch_switch: { label: '虚拟触摸开关', kind: 'switch', min: 0, max: 1, placeholder: '0', hint: 'settings put system vtouch_switch' }
+var TOUCH_CONF_KEY_ORDER = [
+    'touch_slop', 'scroll_friction', 'fling_velocity',
+    'touch_priority', 'vtouch_switch', 'multi_press_timeout', 'long_press_timeout',
+    'vsync_enabled',
+    'cpufreq_limit_disabled', 'cpufreq_bounce_disabled', 'enable_adpf', 'enable_hint_manager',
+    'early_phase_offset_ns', 'early_app_phase_offset_ns', 'early_gl_phase_offset_ns', 'early_gl_app_phase_offset_ns',
+    'high_fps_early_phase_offset_ns', 'high_fps_early_gl_phase_offset_ns', 'high_fps_late_app_phase_offset_ns',
+    'phase_offset_threshold_for_next_vsync_ns'
+];
+var TOUCH_PHASE_KEYS = [
+    'early_phase_offset_ns', 'early_app_phase_offset_ns', 'early_gl_phase_offset_ns', 'early_gl_app_phase_offset_ns',
+    'high_fps_early_phase_offset_ns', 'high_fps_early_gl_phase_offset_ns', 'high_fps_late_app_phase_offset_ns',
+    'phase_offset_threshold_for_next_vsync_ns'
+];
+var TOUCH_PHASE_DEFAULTS = {
+    early_phase_offset_ns: '400',
+    early_app_phase_offset_ns: '400',
+    early_gl_phase_offset_ns: '400',
+    early_gl_app_phase_offset_ns: '2500',
+    high_fps_early_phase_offset_ns: '3500',
+    high_fps_early_gl_phase_offset_ns: '3500',
+    high_fps_late_app_phase_offset_ns: '4500',
+    phase_offset_threshold_for_next_vsync_ns: '7100'
+};
+var TOUCH_PHASE_LABELS = {
+    early_phase_offset_ns: '普通帧早期合成',
+    early_app_phase_offset_ns: '应用帧早期合成',
+    early_gl_phase_offset_ns: 'OpenGL 帧早期合成',
+    early_gl_app_phase_offset_ns: '应用 OpenGL 帧合成',
+    high_fps_early_phase_offset_ns: '高刷普通帧早期',
+    high_fps_early_gl_phase_offset_ns: '高刷 OpenGL 帧早期',
+    high_fps_late_app_phase_offset_ns: '高刷应用帧后期',
+    phase_offset_threshold_for_next_vsync_ns: '等待 VSync 阈值'
+};
+var TOUCH_DEBOUNCE_KEYS = ['touch_slop', 'scroll_friction', 'fling_velocity'];
+var TOUCH_GESTURE_TOGGLE_KEYS = ['touch_priority', 'multi_press_timeout', 'long_press_timeout'];
+var TOUCH_PERF_KEYS = ['cpufreq_limit_disabled', 'cpufreq_bounce_disabled', 'enable_adpf', 'enable_hint_manager'];
+var TOUCH_PERF_TOGGLE_IDS = {
+    cpufreq_limit_disabled: 'touch-perf-cpufreq-limit',
+    cpufreq_bounce_disabled: 'touch-perf-cpufreq-bounce',
+    enable_adpf: 'touch-perf-adpf',
+    enable_hint_manager: 'touch-perf-hint'
+};
+var TOUCH_FIELD_RULES = {
+    touch_slop: { label: '触摸防抖', min: 0, max: 50, integer: true, placeholder: '3' },
+    scroll_friction: { label: '滑动摩擦系数', min: 0, max: 1, integer: false, placeholder: '0.035' },
+    fling_velocity: { label: '最小滑动速度', min: 0, max: 500, integer: true, placeholder: '35' },
+    touch_priority: { label: '触控优先级', min: -20, max: 0, integer: true, placeholder: '-19' },
+    multi_press_timeout: { label: '双击间隔', min: 100, max: 1000, integer: true, placeholder: '300' },
+    long_press_timeout: { label: '长按延迟', min: 100, max: 1000, integer: true, placeholder: '400' }
+};
+var TOUCH_FIELD_LABELS = {
+    touch_slop: '触摸防抖',
+    scroll_friction: '滑动摩擦系数',
+    fling_velocity: '最小滑动速度',
+    touch_priority: '触控优先级',
+    vtouch_switch: '单点轻触',
+    multi_press_timeout: '双击间隔',
+    long_press_timeout: '长按延迟'
 };
 
-function parseTouchTuningText(text) {
+/* ---------- 配置文本：解析 / 生成 / 合并（保留未知 key，绝不覆盖别的卡片） ---------- */
+function parseTouchConf(text) {
     var values = {};
-    var keys = [];
+    var order = [];
     String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
         var content = stripLineComment(line).trim();
         if (!content) return;
@@ -2231,22 +2400,29 @@ function parseTouchTuningText(text) {
         if (idx <= 0) return;
         var key = content.slice(0, idx).trim();
         var value = content.slice(idx + 1).trim();
-        if (TOUCH_TUNING_KEYS.indexOf(key) < 0 || !value) return;
-        if (!Object.prototype.hasOwnProperty.call(values, key)) keys.push(key);
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || !value) return;
+        if (!Object.prototype.hasOwnProperty.call(values, key)) order.push(key);
         values[key] = value;
     });
-    return { values: values, keys: keys };
+    return { values: values, order: order };
 }
 
-function buildTouchTuningText(values) {
+function buildTouchConfText(values, order) {
     var src = values && typeof values === 'object' ? values : {};
+    var known = TOUCH_CONF_KEY_ORDER.slice();
+    var extra = (order || []).filter(function (key) { return known.indexOf(key) < 0; });
+    Object.keys(src).forEach(function (key) {
+        if (known.indexOf(key) < 0 && extra.indexOf(key) < 0) extra.push(key);
+    });
     var lines = [
-        '# 慕容触控采样率 v5.22 触控优化配置（KEY=VALUE，UTF-8；# 注释）',
-        '# 由 WebUI「触控优化」卡片生成；「恢复默认」会执行 apply_touch_tuning.sh restore 并删除本文件',
-        '# 键：touch_slop / scroll_friction / fling_velocity / multi_press_timeout / long_press_timeout / touch_priority / vtouch_switch'
+        '# 慕容触控采样率 v5.23 运行参数（KEY=VALUE，UTF-8；# 注释）',
+        '# 由 WebUI「触控」页按卡片合并写入；删掉某项即不再由模块管理该项',
+        '# 键：touch_slop scroll_friction fling_velocity touch_priority vtouch_switch multi_press_timeout long_press_timeout',
+        '#     vsync_enabled cpufreq_limit_disabled cpufreq_bounce_disabled enable_adpf enable_hint_manager',
+        '#     early_phase_offset_ns / early_app / early_gl / early_gl_app / high_fps_* / phase_offset_threshold_for_next_vsync_ns'
     ];
     var count = 0;
-    TOUCH_TUNING_KEYS.forEach(function (key) {
+    known.concat(extra).forEach(function (key) {
         var value = str(src[key]).trim();
         if (!value) return;
         lines.push(key + '=' + value);
@@ -2256,9 +2432,31 @@ function buildTouchTuningText(values) {
     return lines.join('\n') + '\n';
 }
 
-function touchTuningValuesEqual(a, b) {
-    var left = parseTouchTuningText(a).values;
-    var right = parseTouchTuningText(b).values;
+function mergeTouchConfText(existingText, updates, removals) {
+    var parsed = parseTouchConf(existingText);
+    var values = {};
+    var order = [];
+    parsed.order.forEach(function (key) {
+        values[key] = parsed.values[key];
+        order.push(key);
+    });
+    Object.keys(updates || {}).forEach(function (key) {
+        var value = str(updates[key]).trim();
+        if (!value) return;
+        if (!Object.prototype.hasOwnProperty.call(values, key)) order.push(key);
+        values[key] = value;
+    });
+    (removals || []).forEach(function (key) {
+        delete values[key];
+        var idx = order.indexOf(key);
+        if (idx >= 0) order.splice(idx, 1);
+    });
+    return buildTouchConfText(values, order);
+}
+
+function touchConfValuesEqual(a, b) {
+    var left = parseTouchConf(a).values;
+    var right = parseTouchConf(b).values;
     var leftKeys = Object.keys(left).sort();
     var rightKeys = Object.keys(right).sort();
     if (leftKeys.join(',') !== rightKeys.join(',')) return false;
@@ -2268,98 +2466,435 @@ function touchTuningValuesEqual(a, b) {
     return true;
 }
 
-function normalizeTouchTuningValue(key, raw) {
-    var meta = TOUCH_TUNING_META[key];
-    if (!meta) return { ok: false, error: '未知配置项 ' + key };
-    var value = str(raw).trim();
-    if (!value) return { ok: false, error: meta.label + '（' + key + '）不能为空' };
-    if (meta.kind === 'float') {
-        if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: meta.label + ' 需要数字，如 ' + meta.placeholder };
-        var num = parseFloat(value);
-        if (!isFinite(num) || num < meta.min || num > meta.max) {
-            return { ok: false, error: meta.label + ' 超出范围（' + meta.min + ' ~ ' + meta.max + '）' };
+function touchConfStatusText(values) {
+    var keys = Object.keys(values && typeof values === 'object' ? values : {}).filter(function (key) {
+        return key && TOUCH_CONF_KEY_ORDER.indexOf(key) >= 0;
+    });
+    if (!keys.length) return '未启用';
+    return '已启用 ' + keys.length + ' 项';
+}
+
+function parseApplyExit(text, sentinel) {
+    var pattern = sentinel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':(\\d+)';
+    var match = String(text == null ? '' : text).match(new RegExp(pattern));
+    return match ? parseInt(match[1], 10) : null;
+}
+
+function parseKeyValueLines(text) {
+    var map = {};
+    String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+        var content = String(line || '').trim();
+        if (!content) return;
+        var idx = content.indexOf('=');
+        if (idx <= 0) return;
+        var key = content.slice(0, idx).trim();
+        var value = content.slice(idx + 1).trim();
+        if (!/^[A-Za-z0-9_.-]+$/.test(key)) return;
+        map[key] = value;
+    });
+    return map;
+}
+
+/* ---------- 配置读 / 写 / 应用（所有卡片共用；失败抛出明确原因） ---------- */
+async function readTouchConf() {
+    var out = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
+    return parseTouchConf(out);
+}
+
+async function writeTouchConfVerified(text) {
+    if (!text) throw new Error('配置内容为空');
+    var b64 = utf8ToBase64(text);
+    if (!b64) throw new Error('配置编码失败');
+    var out = await runCommand(CMD.writeTouchTuning(b64), { timeout: 20000 });
+    if (!hasSentinel(out, '__WRITE_OK__')) throw new Error('写入配置失败（目录或权限异常）');
+    var readBack = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
+    if (!touchConfValuesEqual(text, readBack)) throw new Error('配置回读不一致（写入可能失败）');
+    return true;
+}
+
+async function applyTouchTuningScript() {
+    var out = await runCommand(CMD.applyTouchTuning(), { timeout: 45000 });
+    var code = parseApplyExit(out, '__APPLY_DONE__');
+    if (code !== 0) {
+        throw new Error('apply_touch_tuning.sh 执行失败' + (code === null ? '（未返回退出码）' : '（exit ' + code + '）'));
+    }
+    return true;
+}
+
+async function updateTouchConf(updates, removals, label) {
+    var st = APP.touch;
+    if (!st) return { ok: false, error: '触控页状态未初始化' };
+    if (st.saving) return { ok: false, error: '正在处理，请稍后' };
+    var ups = {};
+    Object.keys(updates || {}).forEach(function (key) {
+        var value = str(updates[key]).trim();
+        if (value) ups[key] = value;
+    });
+    var rms = (removals || []).filter(function (key) { return typeof key === 'string' && key; });
+    if (!Object.keys(ups).length && !rms.length) return { ok: false, error: '没有需要写入的配置项' };
+    st.saving = true;
+    try {
+        var current = await readTouchConf();
+        var currentText = buildTouchConfText(current.values, current.order);
+        var mergedText = mergeTouchConfText(currentText, ups, rms);
+        if (!mergedText) {
+            var del = await runCommand(CMD.deleteTouchTuning(), { timeout: 15000 });
+            if (!hasSentinel(del, '__DELETE_OK__')) throw new Error('删除配置文件失败');
+        } else {
+            await writeTouchConfVerified(mergedText);
         }
-        return { ok: true, value: value };
+        var merged = parseTouchConf(mergedText);
+        st.conf = merged.values;
+        st.confOrder = merged.order;
+        await applyTouchTuningScript();
+        st.lastMessage = (label || '触控参数') + '已应用';
+        return { ok: true, values: merged.values };
+    } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        st.lastMessage = (label || '触控参数') + '失败：' + message;
+        return { ok: false, error: message };
+    } finally {
+        st.saving = false;
+        renderTouchPage();
     }
-    if (!/^-?\d+$/.test(value)) {
-        return { ok: false, error: meta.label + ' 需要整数' + (meta.kind === 'switch' ? '（0 或 1）' : '，如 ' + meta.placeholder) };
-    }
-    if (meta.kind === 'switch' && value !== '0' && value !== '1') {
-        return { ok: false, error: meta.label + ' 只能是 0 或 1' };
-    }
-    var n = parseInt(value, 10);
-    if (n < meta.min || n > meta.max) {
-        return { ok: false, error: meta.label + ' 超出范围（' + meta.min + ' ~ ' + meta.max + '）' };
-    }
-    return { ok: true, value: value };
 }
 
-function validateTouchTuning(values) {
-    var src = values && typeof values === 'object' ? values : {};
-    var errors = [];
-    TOUCH_TUNING_KEYS.forEach(function (key) {
-        if (!Object.prototype.hasOwnProperty.call(src, key)) return;
-        var raw = str(src[key]).trim();
-        if (!raw) return;
-        var check = normalizeTouchTuningValue(key, raw);
-        if (!check.ok) errors.push({ key: key, message: check.error });
-    });
-    return errors;
+function restoreTouchConfKeys(keys) {
+    return updateTouchConf({}, keys, '恢复默认');
 }
 
-function touchTuningEnabledKeys(values) {
-    var src = values && typeof values === 'object' ? values : {};
-    return TOUCH_TUNING_KEYS.filter(function (key) {
-        return Object.prototype.hasOwnProperty.call(src, key) && str(src[key]).trim() !== '';
-    });
-}
-
-/* 状态文案：未启用 / 已启用 N 项：key=value… */
-function touchTuningStatusText(values) {
-    var keys = touchTuningEnabledKeys(values);
-    if (!keys.length) return '未启用（不修改系统设置）';
-    return '已启用 ' + keys.length + ' 项：' + keys.map(function (key) { return key + '=' + str(values[key]).trim(); }).join('、');
-}
-
-function updateTouchTuningForm(values) {
-    var src = values && typeof values === 'object' ? values : {};
-    TOUCH_TUNING_KEYS.forEach(function (key) {
-        var value = str(src[key]).trim();
-        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
-        var input = document.querySelector('[data-touch-input="' + key + '"]');
-        if (toggle) toggle.checked = value !== '';
-        if (input) {
-            input.value = value;
-            input.disabled = value === '';
-            input.classList.toggle('is-invalid', false);
-        }
-    });
-}
-
-function readTouchTuningForm() {
-    var values = {};
-    TOUCH_TUNING_KEYS.forEach(function (key) {
-        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
-        var input = document.querySelector('[data-touch-input="' + key + '"]');
-        if (!toggle || !toggle.checked) return;
-        values[key] = input ? input.value.trim() : '';
-    });
-    return values;
-}
-
-function renderTouchTuningCard(options) {
+/* ---------- 触控页状态装载 ---------- */
+async function loadTouchTab(options) {
     options = options || {};
-    var st = APP.touchTuning || {};
-    var statusText;
-    if (st.loading) statusText = '读取中…';
-    else if (st.error) statusText = '失败：' + st.error;
-    else statusText = touchTuningStatusText(st.values);
-    setText('touch-tuning-status', statusText);
-    var statusNode = $('touch-tuning-status');
-    if (statusNode) statusNode.style.color = st.error ? 'var(--danger)' : '';
-    /* keepForm：仅切回配置页时保留用户尚未保存的输入，不重置表单 */
-    if (!options.keepForm) updateTouchTuningForm(st.values);
-    var result = $('touch-tuning-result');
+    var st = APP.touch;
+    if (st.loading) return false;
+    st.loading = true;
+    st.error = '';
+    try {
+        var conf = await readTouchConf();
+        st.conf = conf.values;
+        st.confOrder = conf.order;
+        st.loaded = true;
+        await loadHalStatus();
+        await loadCloudStatus();
+        await loadVsyncState({ silent: true });
+        return true;
+    } catch (e) {
+        st.error = e && e.message ? e.message : String(e);
+        return false;
+    } finally {
+        st.loading = false;
+        renderTouchPage({ keepForm: false });
+    }
+}
+
+/* ---------- HAL 采样率（touchconfig.sh，独立通道，不在 touch_tuning.conf） ---------- */
+function parseTouchConfigStatus(text) {
+    var map = parseKeyValueLines(text);
+    if (!Object.keys(map).length) {
+        return { supported: false, reason: 'no_output', path: '', current: '', currentValue: '', selected: '', values: '' };
+    }
+    if (map.supported === 'yes') {
+        return {
+            supported: true,
+            reason: '',
+            path: map.path || '',
+            current: map.current || 'default',
+            currentValue: map.current_value || '',
+            selected: map.selected || '',
+            values: map.value_list || ''
+        };
+    }
+    return {
+        supported: false,
+        reason: map.reason || map.supported || 'unknown',
+        path: map.path || '',
+        current: '',
+        currentValue: '',
+        selected: '',
+        values: ''
+    };
+}
+
+function touchHalDisplayLabel(rate) {
+    var value = String(rate || 'default');
+    if (TOUCH_HAL_LABELS[value]) return TOUCH_HAL_LABELS[value];
+    var match = value.match(/^value-(\d+)$/);
+    if (match) return 'v' + match[1] + '（原始）';
+    return value;
+}
+
+function touchHalUnsupportedReason(reason) {
+    var value = String(reason || '');
+    if (value === 'config_missing') return '未找到触控 HAL 配置文件';
+    if (value === 'config_format') return '触控 HAL 配置文件格式不匹配';
+    if (value === 'no_output') return '未检测到触控 HAL 配置（旧机型或未适配）';
+    return value || '未检测到触控 HAL 配置';
+}
+
+function touchHalErrorText(text) {
+    var value = String(text || '').trim();
+    if (!value) return '触控 HAL 未返回结果（可能未适配）';
+    if (value.indexOf('error: config_missing') >= 0) return '当前机型不支持 HAL 通道（未找到触控 HAL 配置）';
+    if (value.indexOf('error: unsupported_rate') >= 0) return '不支持的采样率档位';
+    if (value.indexOf('error:') === 0) return value.replace(/^error:\s*/, '');
+    return value;
+}
+
+async function loadHalStatus() {
+    var hal = APP.touch.hal;
+    try {
+        var out = await runCommand(CMD.touchConfigStatus(), { timeout: 20000 });
+        var parsed = parseTouchConfigStatus(out);
+        hal.supported = parsed.supported;
+        hal.reason = parsed.reason;
+        hal.path = parsed.path;
+        hal.current = parsed.current;
+        hal.currentValue = parsed.currentValue;
+        hal.selected = parsed.selected;
+        hal.values = parsed.values;
+        hal.error = '';
+    } catch (e) {
+        hal.supported = false;
+        hal.error = e && e.message ? e.message : String(e);
+    }
+    return hal;
+}
+
+async function applyHalRate(rate, options) {
+    options = options || {};
+    var value = String(rate || '').trim();
+    if (TOUCH_HAL_RATES.indexOf(value) < 0 && TOUCH_HAL_RAW_VALUES.indexOf(value) < 0) {
+        if (!options.silent) toast('无效的采样率档位', 'err');
+        return { ok: false, error: 'invalid_rate' };
+    }
+    var hal = APP.touch.hal;
+    if (hal.supported !== true) {
+        if (!options.silent) toast('当前机型不支持 HAL 通道', 'err', 3600);
+        return { ok: false, error: 'unsupported' };
+    }
+    var st = APP.touch;
+    if (st.saving) return { ok: false, error: '正在处理，请稍后' };
+    st.saving = true;
+    try {
+        var out = await runCommand(CMD.touchConfigApply(value), { timeout: 90000 });
+        var text = String(out || '').trim();
+        if (text.indexOf('ok:') !== 0) throw new Error(touchHalErrorText(text));
+        hal.selected = value;
+        st.lastMessage = '触控采样率已切换：' + touchHalDisplayLabel(value);
+        if (!options.silent) toast('触控采样率已切换：' + touchHalDisplayLabel(value), 'ok', 3600);
+        await loadHalStatus();
+        return { ok: true, output: text };
+    } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        st.lastMessage = '切换触控采样率失败：' + message;
+        if (!options.silent) toast('切换失败：' + message, 'err', 4600);
+        return { ok: false, error: message };
+    } finally {
+        st.saving = false;
+        renderTouchPage({ keepForm: true });
+    }
+}
+
+async function confirmHalRate(rate) {
+    var label = touchHalDisplayLabel(rate);
+    var ok = await confirmDialog({
+        title: '切换触控采样率？',
+        message: '将改写触控 HAL 配置并重启触控服务（约 3 秒，期间可能短暂失灵）。目标档位：' + label + '。',
+        confirmText: '切换',
+        danger: true
+    });
+    if (!ok) return false;
+    var result = await applyHalRate(rate);
+    return result.ok;
+}
+
+/* ---------- 云控采样率注入（cloud-rate.sh，改写欧加应用增强服务数据库） ---------- */
+function parseCloudRateStatus(text) {
+    var map = parseKeyValueLines(text);
+    var supported = map.supported === 'yes';
+    var injected = Number(map.injected);
+    return {
+        model: map.model || '',
+        platform: map.platform || '',
+        supported: supported,
+        db: map.db || '',
+        backup: map.backup || '',
+        sqlite: map.sqlite || '',
+        injected: isFinite(injected) ? String(injected) : '0'
+    };
+}
+
+async function loadCloudStatus() {
+    var cloud = APP.touch.cloud;
+    try {
+        var out = await runCommand(CMD.cloudRateStatus(), { timeout: 30000 });
+        var parsed = parseCloudRateStatus(out);
+        cloud.model = parsed.model;
+        cloud.platform = parsed.platform;
+        cloud.supported = parsed.supported;
+        cloud.db = parsed.db;
+        cloud.backup = parsed.backup;
+        cloud.sqlite = parsed.sqlite;
+        cloud.injected = parsed.injected;
+        cloud.error = '';
+    } catch (e) {
+        cloud.error = e && e.message ? e.message : String(e);
+    }
+    return cloud;
+}
+
+function cloudRateErrorText(text) {
+    var value = String(text || '').trim();
+    if (!value) return '云控脚本未返回结果（数据库或 sqlite3 不可用？）';
+    if (value.indexOf('error:') === 0) return value.replace(/^error:\s*/, '');
+    if (value.indexOf('usage:') === 0) return '云控脚本调用参数错误';
+    return value;
+}
+
+async function injectCloudRate() {
+    var cloud = APP.touch.cloud;
+    if (cloud.busy) return { ok: false, error: '正在注入，请稍后' };
+    if (cloud.supported === false) {
+        toast('当前机型无云控采样率配置，无法注入', 'err', 3600);
+        return { ok: false, error: 'unsupported' };
+    }
+    cloud.busy = true;
+    try {
+        var out = await runCommand(CMD.cloudRateInject(), { timeout: 180000 });
+        var text = String(out || '').trim();
+        if (text.indexOf('ok:') !== 0) throw new Error(cloudRateErrorText(text));
+        var count = text.slice(3).trim() || '0';
+        toast('云控采样率注入完成：' + count + ' 个包名', 'ok', 3600);
+        await loadCloudStatus();
+        return { ok: true, count: count, output: text };
+    } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        toast('云控注入失败：' + message, 'err', 4600);
+        return { ok: false, error: message };
+    } finally {
+        cloud.busy = false;
+        renderTouchPage({ keepForm: true });
+    }
+}
+
+async function restoreCloudRate() {
+    var cloud = APP.touch.cloud;
+    if (cloud.busy) return { ok: false, error: '正在处理，请稍后' };
+    cloud.busy = true;
+    try {
+        var out = await runCommand(CMD.cloudRateRestore(), { timeout: 180000 });
+        var text = String(out || '').trim();
+        if (text.indexOf('ok') !== 0) throw new Error(cloudRateErrorText(text));
+        toast('已恢复默认，重启手机或重新打开游戏生效', 'ok', 3600);
+        await loadCloudStatus();
+        return { ok: true, output: text };
+    } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        toast('云控恢复失败：' + message, 'err', 4600);
+        return { ok: false, error: message };
+    } finally {
+        cloud.busy = false;
+        renderTouchPage({ keepForm: true });
+    }
+}
+
+async function confirmCloudInject() {
+    var ok = await confirmDialog({
+        title: '注入云控采样率？',
+        message: '将改写「应用增强服务」(com.oplus.cosa) 的游戏数据库采样率字段，注入前会自动备份原始数据库；注入后可能需要重启手机或重新打开游戏生效。',
+        confirmText: '注入',
+        danger: true
+    });
+    if (!ok) return false;
+    var result = await injectCloudRate();
+    return result.ok;
+}
+
+async function confirmCloudRestore() {
+    var ok = await confirmDialog({
+        title: '恢复云控默认？',
+        message: '将删除注入的包名并还原备份的原始数据库；没有备份时会清除「应用增强服务」数据（可能丢失该服务设置），恢复后建议重启手机。',
+        confirmText: '恢复默认',
+        danger: true
+    });
+    if (!ok) return false;
+    var result = await restoreCloudRate();
+    return result.ok;
+}
+
+/* ---------- VSync（主页开关；读 settings get global hwui.disable_vsync） ---------- */
+function parseVsyncEnabled(raw) {
+    var value = String(raw == null ? '' : raw).trim().toLowerCase();
+    if (value === 'true') return false;
+    if (value === 'false') return true;
+    return null;
+}
+
+async function loadVsyncState(options) {
+    var vsync = APP.touch.vsync;
+    if (vsync.loading) return false;
+    vsync.loading = true;
+    try {
+        var out = await runCommand(CMD.vsyncGet(), { timeout: 15000 });
+        vsync.enabled = parseVsyncEnabled(out);
+        vsync.error = '';
+        vsync.loaded = true;
+    } catch (e) {
+        vsync.error = e && e.message ? e.message : String(e);
+    } finally {
+        vsync.loading = false;
+        if (!options || !options.silent) renderVsyncCard();
+    }
+    return vsync.enabled;
+}
+
+function renderVsyncCard() {
+    var vsync = (APP.touch && APP.touch.vsync) || {};
+    var toggle = $('vsync-toggle');
+    if (toggle) toggle.checked = vsync.enabled === true;
+    var text;
+    var danger = false;
+    if (vsync.error) { text = '检测失败：' + vsync.error; danger = true; }
+    else if (vsync.enabled === null || vsync.enabled === undefined) text = '检测中…';
+    else text = vsync.enabled ? '已开启' : '已关闭';
+    setText('vsync-state', text);
+    var stateNode = $('vsync-state');
+    if (stateNode) stateNode.style.color = danger ? 'var(--danger)' : '';
+}
+
+async function setVsync(enabled) {
+    var result = await updateTouchConf({ vsync_enabled: enabled ? '1' : '0' }, [], 'VSync');
+    if (result.ok) toast('VSync 已' + (enabled ? '开启' : '关闭') + '并保存', 'ok', 3000);
+    else toast('VSync 设置失败：' + result.error, 'err', 4200);
+    await loadVsyncState({ silent: true });
+    renderVsyncCard();
+    return result.ok;
+}
+
+/* ---------- 触控页渲染 ---------- */
+function renderTouchPage(options) {
+    options = options || {};
+    var st = APP.touch;
+    if (!st) return;
+    renderTouchConfSummary();
+    renderDebounceCard(options);
+    renderGestureCard(options);
+    renderPerfCard();
+    renderPhaseCard(options);
+    renderHalCard();
+    renderCloudCard();
+}
+
+function renderTouchConfSummary() {
+    var st = APP.touch || {};
+    setText('touch-conf-tag', st.loading ? '读取中…' : touchConfStatusText(st.conf));
+    var notice = $('touch-notice');
+    if (notice) {
+        notice.hidden = !st.error;
+        if (st.error) notice.textContent = '触控配置读取失败：' + st.error;
+    }
+    var result = $('touch-page-result');
     if (result) {
         result.hidden = !st.lastMessage;
         result.textContent = st.lastMessage || '';
@@ -2367,175 +2902,355 @@ function renderTouchTuningCard(options) {
     }
 }
 
-async function writeTouchTuningVerified(text) {
-    var b64 = utf8ToBase64(text);
-    if (!b64) throw new Error('配置编码失败');
-    var out = await runCommand(CMD.writeTouchTuning(b64), { timeout: 20000 });
-    if (!hasSentinel(out, '__WRITE_OK__')) throw new Error('写入配置失败（' + stripSentinels(out || '目录或权限异常') + '）');
-    var readBack = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
-    if (!touchTuningValuesEqual(text, readBack)) throw new Error('配置回读不一致（写入可能失败）');
-    return true;
+function syncTouchFields(keys, options) {
+    if (options && options.keepForm) return;
+    var conf = (APP.touch && APP.touch.conf) || {};
+    keys.forEach(function (key) {
+        var value = str(conf[key]).trim();
+        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
+        var input = document.querySelector('[data-touch-input="' + key + '"]');
+        var rule = TOUCH_FIELD_RULES[key];
+        if (toggle) toggle.checked = value !== '';
+        if (input) {
+            input.value = value;
+            input.disabled = value === '';
+            if (rule && input.setAttribute) input.setAttribute('placeholder', '默认 ' + rule.placeholder);
+        }
+    });
 }
 
-async function loadTouchTuning(options) {
-    options = options || {};
-    var st = APP.touchTuning;
-    if (st.loading) return false;
-    st.loading = true;
-    st.error = '';
-    try {
-        var out = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
-        var parsed = parseTouchTuningText(out);
-        st.values = parsed.values;
-        st.loaded = true;
-        st.lastMessage = parsed.keys.length ? '' : '未启用：' + TOUCH_TUNING_PATH + ' 不存在或为空（不会修改系统设置）。';
-        return true;
-    } catch (e) {
-        st.loaded = true;
-        st.error = e && e.message ? e.message : String(e);
+function renderDebounceCard(options) {
+    syncTouchFields(TOUCH_DEBOUNCE_KEYS, options);
+}
+
+function renderGestureCard(options) {
+    syncTouchFields(TOUCH_GESTURE_TOGGLE_KEYS, options);
+    var conf = (APP.touch && APP.touch.conf) || {};
+    var vtouch = str(conf.vtouch_switch).trim();
+    document.querySelectorAll('#touch-vtouch-options [data-vtouch]').forEach(function (btn) {
+        var on = btn.dataset.vtouch === '0' ? vtouch === '0' : vtouch !== '0';
+        btn.classList.toggle('is-active', on);
+    });
+}
+
+function renderPerfCard() {
+    var conf = (APP.touch && APP.touch.conf) || {};
+    Object.keys(TOUCH_PERF_TOGGLE_IDS).forEach(function (key) {
+        var node = $(TOUCH_PERF_TOGGLE_IDS[key]);
+        if (node) node.checked = str(conf[key]).trim() === '1';
+    });
+}
+
+function renderPhaseCard(options) {
+    var conf = (APP.touch && APP.touch.conf) || {};
+    TOUCH_PHASE_KEYS.forEach(function (key) {
+        var input = document.querySelector('[data-touch-phase="' + key + '"]');
+        if (!input) return;
+        if (input.setAttribute) input.setAttribute('placeholder', '默认 ' + TOUCH_PHASE_DEFAULTS[key]);
+        if (options && options.keepForm) return;
+        input.value = str(conf[key]).trim();
+    });
+}
+
+function renderHalCard() {
+    var hal = (APP.touch && APP.touch.hal) || {};
+    var statusText;
+    var danger = false;
+    if (hal.error) { statusText = '读取失败'; danger = true; }
+    else if (hal.supported === null || hal.supported === undefined) statusText = '检测中…';
+    else if (hal.supported !== true) { statusText = '不支持'; danger = true; }
+    else statusText = touchHalDisplayLabel(hal.selected || hal.current || 'default');
+    setText('touch-hal-state', statusText);
+    var stateNode = $('touch-hal-state');
+    if (stateNode) stateNode.style.color = danger ? 'var(--danger)' : '';
+    var note = $('touch-hal-note');
+    if (note) {
+        if (hal.error) note.textContent = 'HAL 状态读取失败：' + hal.error;
+        else if (hal.supported === false) note.textContent = '当前机型不支持 HAL 通道（' + touchHalUnsupportedReason(hal.reason) + '）';
+        else if (hal.supported === true) note.textContent = 'HAL 配置：' + (hal.path || '/data/vendor/touchconfig/vnd_custom_config_main.xml') + (hal.currentValue && hal.currentValue !== 'mixed' ? ' · 当前 value=' + hal.currentValue : '');
+        else note.textContent = '正在检测触控 HAL 通道…';
+    }
+    var supported = hal.supported === true;
+    document.querySelectorAll('.touch-hal-btn').forEach(function (btn) {
+        btn.disabled = !supported;
+        btn.classList.toggle('is-active', supported && btn.dataset.halRate === (hal.selected || hal.current || 'default'));
+    });
+}
+
+function renderCloudCard() {
+    var cloud = (APP.touch && APP.touch.cloud) || {};
+    var model = cloud.model ? (cloud.model + (cloud.platform ? ' · ' + cloud.platform : '')) : (cloud.error ? '读取失败' : '检测中…');
+    setText('touch-cloud-model', model);
+    var supportedText = cloud.error ? '读取失败' : (cloud.supported === null || cloud.supported === undefined ? '检测中…' : (cloud.supported ? '支持' : '设备无配置'));
+    setText('touch-cloud-supported', supportedText);
+    var dbText = cloud.error ? '—' : ('数据库 ' + (cloud.db === 'yes' ? '正常' : (cloud.db === 'no' ? '不存在' : '未知')) + ' / sqlite3 ' + (cloud.sqlite === 'yes' ? '可用' : (cloud.sqlite === 'no' ? '缺失' : '未知')));
+    setText('touch-cloud-db', dbText);
+    var injected = Number(cloud.injected || 0);
+    var injectedText = cloud.error ? '—' : (cloud.injected === undefined || cloud.injected === '' ? '检测中…' : (injected > 0 ? '已注入 ' + injected + ' 个包名' : '未注入'));
+    setText('touch-cloud-injected', injectedText);
+    var backupText = cloud.error ? '—' : (cloud.backup === 'yes' ? '已有备份' : (cloud.backup === 'no' ? '无备份（注入时自动创建）' : '检测中…'));
+    setText('touch-cloud-backup', backupText);
+    var supportedNode = $('touch-cloud-supported');
+    if (supportedNode) supportedNode.style.color = cloud.supported === false || cloud.error ? 'var(--danger)' : '';
+}
+
+function touchCardResult(id, message, kind) {
+    var node = $(id);
+    if (!node) return;
+    node.hidden = !message;
+    node.textContent = message || '';
+    node.className = 'inline-result' + (kind === 'err' ? ' is-err' : (kind === 'ok' ? ' is-ok' : ''));
+}
+
+/* ---------- 卡片应用逻辑 ---------- */
+function validateTouchRange(key, raw) {
+    var rule = TOUCH_FIELD_RULES[key];
+    if (!rule) return '';
+    var value = str(raw).trim();
+    if (!value) return rule.label + '不能为空';
+    if (rule.integer) {
+        if (!/^-?\d+$/.test(value)) return rule.label + '需要整数（如 ' + rule.placeholder + '）';
+    } else {
+        if (!/^\d+(\.\d+)?$/.test(value)) return rule.label + '需要数字（如 ' + rule.placeholder + '）';
+    }
+    var num = parseFloat(value);
+    if (!isFinite(num) || num < rule.min || num > rule.max) {
+        return rule.label + '超出范围（' + rule.min + ' ~ ' + rule.max + '）';
+    }
+    return '';
+}
+
+function collectTouchCardFields(keys) {
+    var updates = {};
+    var removals = [];
+    keys.forEach(function (key) {
+        var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
+        var input = document.querySelector('[data-touch-input="' + key + '"]');
+        var checked = !toggle || toggle.checked;
+        var value = input ? input.value.trim() : '';
+        if (checked && value !== '') updates[key] = value;
+        else removals.push(key);
+    });
+    return { updates: updates, removals: removals };
+}
+
+function firstTouchFieldError(updates) {
+    var keys = Object.keys(updates);
+    for (var i = 0; i < keys.length; i++) {
+        var error = validateTouchRange(keys[i], updates[keys[i]]);
+        if (error) return error;
+    }
+    return '';
+}
+
+async function applyDebounceCard() {
+    var collected = collectTouchCardFields(TOUCH_DEBOUNCE_KEYS);
+    var error = firstTouchFieldError(collected.updates);
+    if (error) {
+        touchCardResult('touch-debounce-result', error, 'err');
+        toast(error, 'warn', 4200);
         return false;
-    } finally {
-        st.loading = false;
-        if (!options.silent) renderTouchTuningCard();
     }
+    if (!Object.keys(collected.updates).length) {
+        var emptyMessage = '至少启用一项并填写数值（或用「恢复默认」）';
+        touchCardResult('touch-debounce-result', emptyMessage, 'err');
+        toast(emptyMessage, 'warn', 4200);
+        return false;
+    }
+    var result = await updateTouchConf(collected.updates, collected.removals, '触控防抖');
+    if (result.ok) {
+        touchCardResult('touch-debounce-result', '已应用并保存（' + Object.keys(collected.updates).length + ' 项）', 'ok');
+        toast('触控防抖已应用并保存', 'ok', 3000);
+    } else {
+        touchCardResult('touch-debounce-result', '应用失败：' + result.error, 'err');
+        toast('触控防抖应用失败：' + result.error, 'err', 4600);
+    }
+    return result.ok;
 }
 
-async function saveTouchTuning(values) {
-    var st = APP.touchTuning;
-    if (st.saving) return { ok: false, error: '正在保存，请稍后' };
-    var payload = {};
-    var enabledKeys = [];
-    TOUCH_TUNING_KEYS.forEach(function (key) {
-        if (!values || !Object.prototype.hasOwnProperty.call(values, key)) return;
-        enabledKeys.push(key);
-        var raw = str(values[key]).trim();
-        if (raw) payload[key] = raw;
+async function applyGestureCard() {
+    var collected = collectTouchCardFields(TOUCH_GESTURE_TOGGLE_KEYS);
+    var error = firstTouchFieldError(collected.updates);
+    if (error) {
+        touchCardResult('touch-gesture-result', error, 'err');
+        toast(error, 'warn', 4200);
+        return false;
+    }
+    var vtouchButton = document.querySelector('#touch-vtouch-options [data-vtouch].is-active');
+    var vtouchChoice = vtouchButton ? vtouchButton.dataset.vtouch : 'default';
+    if (vtouchChoice === '0') collected.updates.vtouch_switch = '0';
+    else collected.removals.push('vtouch_switch');
+    if (!Object.keys(collected.updates).length) {
+        var emptyMessage = '至少启用一项并填写数值（或把「单点轻触」设为关闭）';
+        touchCardResult('touch-gesture-result', emptyMessage, 'err');
+        toast(emptyMessage, 'warn', 4200);
+        return false;
+    }
+    var result = await updateTouchConf(collected.updates, collected.removals, '手势设置');
+    if (result.ok) {
+        touchCardResult('touch-gesture-result', '已应用并保存（' + Object.keys(collected.updates).length + ' 项）', 'ok');
+        toast('手势设置已应用并保存', 'ok', 3000);
+    } else {
+        touchCardResult('touch-gesture-result', '应用失败：' + result.error, 'err');
+        toast('手势设置应用失败：' + result.error, 'err', 4600);
+    }
+    return result.ok;
+}
+
+async function applyPerfCard() {
+    var updates = {};
+    Object.keys(TOUCH_PERF_TOGGLE_IDS).forEach(function (key) {
+        var node = $(TOUCH_PERF_TOGGLE_IDS[key]);
+        updates[key] = node && node.checked ? '1' : '0';
     });
-    if (!enabledKeys.length) {
-        st.lastMessage = '未勾选任何项：请至少启用一项，或点「恢复默认」。';
-        st.error = '';
-        renderTouchTuningCard();
-        return { ok: false, error: st.lastMessage };
+    var result = await updateTouchConf(updates, [], '性能释放');
+    if (result.ok) {
+        touchCardResult('touch-perf-result', '已应用并保存（4 项）', 'ok');
+        toast('性能释放已应用并保存', 'ok', 3000);
+    } else {
+        touchCardResult('touch-perf-result', '应用失败：' + result.error, 'err');
+        toast('性能释放应用失败：' + result.error, 'err', 4600);
     }
-    var emptyKeys = enabledKeys.filter(function (key) { return !payload[key]; });
-    if (emptyKeys.length) {
-        st.lastMessage = '请填写已勾选项的数值：' + emptyKeys.join('、');
-        st.error = '';
-        renderTouchTuningCard();
-        return { ok: false, error: st.lastMessage };
-    }
-    var errors = validateTouchTuning(payload);
-    if (errors.length) {
-        st.lastMessage = errors[0].message;
-        st.error = '';
-        renderTouchTuningCard();
-        return { ok: false, error: errors[0].message, errors: errors };
-    }
-    st.saving = true;
-    st.error = '';
-    try {
-        var text = buildTouchTuningText(payload);
-        await writeTouchTuningVerified(text);
-        var out = await runCommand(CMD.applyTouchTuning(), { timeout: 30000 });
-        if (!hasSentinel(out, '__APPLY_DONE__')) throw new Error('apply_touch_tuning.sh 执行失败');
-        st.values = payload;
-        st.loaded = true;
-        st.lastMessage = '已保存并应用：' + touchTuningStatusText(payload);
-        renderTouchTuningCard();
-        toast('触控优化已保存并应用（' + Object.keys(payload).length + ' 项）', 'ok', 3200);
-        return { ok: true, values: payload };
-    } catch (e) {
-        st.error = e && e.message ? e.message : String(e);
-        st.lastMessage = '保存失败：' + st.error;
-        renderTouchTuningCard();
-        return { ok: false, error: st.error };
-    } finally {
-        st.saving = false;
-        renderTouchTuningCard();
-    }
+    return result.ok;
 }
 
-async function restoreTouchTuning() {
-    var st = APP.touchTuning;
-    if (st.saving) return { ok: false, error: '正在处理，请稍后' };
-    st.saving = true;
-    st.error = '';
-    try {
-        var out = await runCommand(CMD.restoreTouchTuning(), { timeout: 30000 });
-        var restored = hasSentinel(out, '__RESTORE_DONE__');
-        if (!restored) throw new Error('restore 执行失败');
-        var removed = await runCommand(CMD.deleteTouchTuning(), { timeout: 15000 });
-        if (!hasSentinel(removed, '__DELETE_OK__')) throw new Error('删除配置文件失败');
-        var readBack = await runCommand(CMD.readTouchTuning(), { timeout: 15000 });
-        if (parseTouchTuningText(readBack).keys.length) throw new Error('配置文件仍然存在');
-        st.values = {};
-        st.loaded = true;
-        st.lastMessage = '已恢复默认并删除 ' + TOUCH_TUNING_PATH;
-        renderTouchTuningCard();
-        toast('已恢复触控优化默认值', 'ok', 3000);
-        return { ok: true };
-    } catch (e) {
-        st.error = e && e.message ? e.message : String(e);
-        st.lastMessage = '恢复默认失败：' + st.error;
-        renderTouchTuningCard();
-        return { ok: false, error: st.error };
-    } finally {
-        st.saving = false;
-        renderTouchTuningCard();
+function collectPhaseValues() {
+    var values = {};
+    for (var i = 0; i < TOUCH_PHASE_KEYS.length; i++) {
+        var key = TOUCH_PHASE_KEYS[i];
+        var input = document.querySelector('[data-touch-phase="' + key + '"]');
+        var raw = input ? String(input.value || '').trim() : '';
+        if (!raw) continue;
+        if (!/^\d+$/.test(raw)) return { values: {}, error: TOUCH_PHASE_LABELS[key] + '需要 0~100000000 的整数' };
+        var num = parseInt(raw, 10);
+        if (!isFinite(num) || num < 0 || num > 100000000) return { values: {}, error: TOUCH_PHASE_LABELS[key] + '超出范围（0 ~ 100000000）' };
+        values[key] = String(num);
     }
+    return { values: values, error: '' };
 }
 
-async function onSaveTouchTuning() {
-    var st = APP.touchTuning;
-    var values = readTouchTuningForm();
-    var emptyKeys = TOUCH_TUNING_KEYS.filter(function (key) {
-        return Object.prototype.hasOwnProperty.call(values, key) && !str(values[key]).trim();
-    });
-    if (emptyKeys.length) {
-        st.lastMessage = '请填写已勾选项的数值：' + emptyKeys.join('、');
-        st.error = '';
-        renderTouchTuningCard();
-        toast(st.lastMessage, 'warn', 4200);
-        return;
+async function applyPhaseCard() {
+    var collected = collectPhaseValues();
+    if (collected.error) {
+        touchCardResult('touch-phase-result', collected.error, 'err');
+        toast(collected.error, 'warn', 4200);
+        return false;
     }
-    var errors = validateTouchTuning(values);
-    if (errors.length) {
-        st.lastMessage = errors[0].message;
-        renderTouchTuningCard();
-        toast(errors[0].message, 'warn', 4200);
-        return;
+    if (!Object.keys(collected.values).length) {
+        var emptyMessage = '请至少填写一个相位数值';
+        touchCardResult('touch-phase-result', emptyMessage, 'err');
+        toast(emptyMessage, 'warn', 4200);
+        return false;
     }
-    var result = await saveTouchTuning(values);
-    if (!result.ok && result.error) toast('保存失败：' + result.error, 'err', 4200);
+    var result = await updateTouchConf(collected.values, [], '相位偏移');
+    if (result.ok) {
+        touchCardResult('touch-phase-result', '已应用并保存（' + Object.keys(collected.values).length + ' 项）', 'ok');
+        toast('相位偏移已应用并保存', 'ok', 3000);
+    } else {
+        touchCardResult('touch-phase-result', '应用失败：' + result.error, 'err');
+        toast('相位偏移应用失败：' + result.error, 'err', 4600);
+    }
+    return result.ok;
 }
 
-async function confirmRestoreTouchTuning() {
+async function confirmApplyPhase() {
     var ok = await confirmDialog({
-        title: '恢复触控优化默认？',
-        message: '将执行 apply_touch_tuning.sh restore 并删除 ' + TOUCH_TUNING_PATH + '（恢复触摸容差/滚动摩擦/甩动速度等系统默认）。',
+        title: '应用相位偏移？',
+        message: '相位偏移属于高级调试项，错误参数可能导致显示异常甚至无法开机；请确认已理解风险。',
+        confirmText: '继续应用',
+        danger: true
+    });
+    if (!ok) return false;
+    return applyPhaseCard();
+}
+
+async function resetPhaseCard() {
+    var ok = await confirmDialog({
+        title: '恢复相位偏移默认？',
+        message: '将删除 8 项相位偏移配置并重新应用；重启后系统恢复默认。',
         confirmText: '恢复默认',
         danger: true
     });
-    if (!ok) return;
-    var result = await restoreTouchTuning();
-    if (!result.ok) toast('恢复默认失败：' + (result.error || '未知原因'), 'err', 4200);
+    if (!ok) return false;
+    var result = await restoreTouchConfKeys(TOUCH_PHASE_KEYS);
+    if (result.ok) {
+        touchCardResult('touch-phase-result', '已恢复默认', 'ok');
+        toast('相位偏移已恢复默认', 'ok', 3000);
+    } else {
+        touchCardResult('touch-phase-result', '恢复默认失败：' + result.error, 'err');
+        toast('相位偏移恢复默认失败：' + result.error, 'err', 4600);
+    }
+    return result.ok;
 }
 
-function bindTouchTuningControls() {
-    TOUCH_TUNING_KEYS.forEach(function (key) {
+async function resetTouchItem(key) {
+    var label = TOUCH_FIELD_LABELS[key] || key;
+    var result = await restoreTouchConfKeys([key]);
+    if (result.ok) toast(label + '已恢复默认', 'ok', 3000);
+    else toast('恢复默认失败：' + result.error, 'err', 4200);
+    return result.ok;
+}
+
+async function confirmRestoreTouchKeys(keys, title) {
+    var ok = await confirmDialog({
+        title: (title || '参数') + '恢复默认？',
+        message: '将删除这些配置项并重新应用（重启后系统恢复默认）：\n' + keys.join('、'),
+        confirmText: '恢复默认',
+        danger: true
+    });
+    if (!ok) return false;
+    var result = await restoreTouchConfKeys(keys);
+    if (result.ok) toast((title || '参数') + '已恢复默认', 'ok', 3000);
+    else toast('恢复默认失败：' + result.error, 'err', 4200);
+    return result.ok;
+}
+
+/* ---------- 事件绑定 ---------- */
+function bindTouchPageControls() {
+    TOUCH_DEBOUNCE_KEYS.concat(TOUCH_GESTURE_TOGGLE_KEYS).forEach(function (key) {
         var toggle = document.querySelector('[data-touch-toggle="' + key + '"]');
         var input = document.querySelector('[data-touch-input="' + key + '"]');
         if (!toggle || !input) return;
         toggle.addEventListener('change', function () {
             input.disabled = !toggle.checked;
             if (!toggle.checked) input.value = '';
-            input.classList.remove('is-invalid');
         });
     });
-    var save = $('btn-touch-tuning-save');
-    if (save) save.addEventListener('click', function () { withBusy(save, '保存中…', onSaveTouchTuning); });
-    var restore = $('btn-touch-tuning-restore');
-    if (restore) restore.addEventListener('click', function () { withBusy(restore, '恢复中…', confirmRestoreTouchTuning); });
+    var debounceApply = $('btn-touch-debounce-apply');
+    if (debounceApply) debounceApply.addEventListener('click', function () { withBusy(debounceApply, '应用中…', applyDebounceCard); });
+    var debounceReset = $('btn-touch-debounce-reset');
+    if (debounceReset) debounceReset.addEventListener('click', function () {
+        withBusy(debounceReset, '恢复中…', function () { return confirmRestoreTouchKeys(TOUCH_DEBOUNCE_KEYS, '触控防抖'); });
+    });
+    document.querySelectorAll('[data-touch-reset]').forEach(function (btn) {
+        btn.addEventListener('click', function () { withBusy(btn, '…', function () { return resetTouchItem(btn.dataset.touchReset); }); });
+    });
+    document.querySelectorAll('.touch-hal-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () { confirmHalRate(btn.dataset.halRate); });
+    });
+    var cloudInject = $('btn-touch-cloud-inject');
+    if (cloudInject) cloudInject.addEventListener('click', function () { withBusy(cloudInject, '注入中…', confirmCloudInject); });
+    var cloudRestore = $('btn-touch-cloud-restore');
+    if (cloudRestore) cloudRestore.addEventListener('click', function () { withBusy(cloudRestore, '恢复中…', confirmCloudRestore); });
+    document.querySelectorAll('#touch-vtouch-options [data-vtouch]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('#touch-vtouch-options [data-vtouch]').forEach(function (other) {
+                other.classList.toggle('is-active', other === btn);
+            });
+        });
+    });
+    var gestureApply = $('btn-touch-gesture-apply');
+    if (gestureApply) gestureApply.addEventListener('click', function () { withBusy(gestureApply, '应用中…', applyGestureCard); });
+    var perfApply = $('btn-touch-perf-apply');
+    if (perfApply) perfApply.addEventListener('click', function () { withBusy(perfApply, '应用中…', applyPerfCard); });
+    var phaseApply = $('btn-touch-phase-apply');
+    if (phaseApply) phaseApply.addEventListener('click', function () { withBusy(phaseApply, '应用中…', confirmApplyPhase); });
+    var phaseReset = $('btn-touch-phase-reset');
+    if (phaseReset) phaseReset.addEventListener('click', function () { withBusy(phaseReset, '恢复中…', resetPhaseCard); });
+    var vsync = $('vsync-toggle');
+    if (vsync) vsync.addEventListener('change', function () { setVsync(vsync.checked); });
+    var goto = $('btn-goto-touch');
+    if (goto) goto.addEventListener('click', function () { switchTab('touch', true); });
 }
 
 /* ============================================================
@@ -4403,7 +5118,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.22.0';
+var ABOUT_VERSION = 'v5.23.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -5001,7 +5716,7 @@ function b64urlDecode(value) {
 }
 
 /* ---------- 绑定 ---------- */
-var TAB_NAMES = ['home', 'config', 'logs', 'user'];
+var TAB_NAMES = ['home', 'config', 'touch', 'logs', 'user'];
 
 function updateBarIndicator(animate) {
     var bar = $('bar-glass');
@@ -5074,8 +5789,17 @@ function switchTab(name, updateHash) {
     else if (name === 'config') {
         if (!APP.configLoaded) loadConfig();
         else { updateGlobalDefault(); updateRulesCount(); updateConfigWarnings(); if (APP.apps.length) renderAppList(); }
-        if (!APP.touchTuning.loaded) loadTouchTuning();
-        else renderTouchTuningCard({ keepForm: true });
+    }
+    else if (name === 'touch') {
+        /* 首次进入全量读取；再次进入只刷新 HAL/云控/VSync 状态并保留未保存输入 */
+        if (!APP.touch.loaded) {
+            loadTouchTab();
+        } else {
+            renderTouchPage({ keepForm: true });
+            loadHalStatus().then(function () { renderHalCard(); });
+            loadCloudStatus().then(function () { renderCloudCard(); });
+            loadVsyncState();
+        }
     }
     else if (name === 'logs') loadRawLog();
     else if (name === 'user') { loadPaidTab(); }
@@ -5109,6 +5833,7 @@ function initialTab() {
 
 function headerPrimaryAction() {
     if (APP.tab === 'home') refreshStatus();
+    else if (APP.tab === 'touch') loadTouchTab();
     else if (APP.tab === 'logs') loadRawLog();
     else if (APP.tab === 'user') { loadPaidTab(); }
 }
@@ -5286,13 +6011,14 @@ function init() {
     bindBottomBar();
     bindBaseControls();
     bindConfigControls();
-    bindTouchTuningControls();
+    bindTouchPageControls();
     bindLogControls();
     bindUserControls();
     bindPaymentControls();
 
     switchTab(initialTab(), false);
     refreshStatus();
+    loadVsyncState({ silent: true });
     updateBarIndicator(false);
     setTimeout(function () { updateBarIndicator(false); }, 80);
     startStatusPolling();
@@ -5507,24 +6233,56 @@ if (typeof window !== 'undefined') {
         },
         TOUCH_TUNING_PATH: TOUCH_TUNING_PATH,
         TOUCH_TUNING_DIR: TOUCH_TUNING_DIR,
-        TOUCH_TUNING_KEYS: TOUCH_TUNING_KEYS,
-        TOUCH_TUNING_META: TOUCH_TUNING_META,
-        parseTouchTuningText: parseTouchTuningText,
-        buildTouchTuningText: buildTouchTuningText,
-        touchTuningValuesEqual: touchTuningValuesEqual,
-        normalizeTouchTuningValue: normalizeTouchTuningValue,
-        validateTouchTuning: validateTouchTuning,
-        touchTuningEnabledKeys: touchTuningEnabledKeys,
-        touchTuningStatusText: touchTuningStatusText,
-        loadTouchTuning: loadTouchTuning,
-        saveTouchTuning: saveTouchTuning,
-        restoreTouchTuning: restoreTouchTuning,
-        renderTouchTuningCard: renderTouchTuningCard,
-        bindTouchTuningControls: bindTouchTuningControls,
-        getTouchTuningState: function () { return JSON.parse(JSON.stringify(APP.touchTuning || {})); },
-        resetTouchTuningState: function () {
-            APP.touchTuning = { loading: false, saving: false, loaded: false, values: {}, error: '', lastMessage: '' };
-            return APP.touchTuning;
+        TOUCHCONFIG_SCRIPT: TOUCHCONFIG_SCRIPT,
+        CLOUD_RATE_SCRIPT: CLOUD_RATE_SCRIPT,
+        TOUCH_HAL_RATES: TOUCH_HAL_RATES,
+        TOUCH_HAL_RAW_VALUES: TOUCH_HAL_RAW_VALUES,
+        TOUCH_HAL_LABELS: TOUCH_HAL_LABELS,
+        TOUCH_CONF_KEY_ORDER: TOUCH_CONF_KEY_ORDER,
+        TOUCH_PHASE_KEYS: TOUCH_PHASE_KEYS,
+        TOUCH_PHASE_DEFAULTS: TOUCH_PHASE_DEFAULTS,
+        TOUCH_FIELD_RULES: TOUCH_FIELD_RULES,
+        parseTouchConf: parseTouchConf,
+        buildTouchConfText: buildTouchConfText,
+        mergeTouchConfText: mergeTouchConfText,
+        touchConfValuesEqual: touchConfValuesEqual,
+        touchConfStatusText: touchConfStatusText,
+        parseApplyExit: parseApplyExit,
+        parseKeyValueLines: parseKeyValueLines,
+        readTouchConf: readTouchConf,
+        writeTouchConfVerified: writeTouchConfVerified,
+        applyTouchTuningScript: applyTouchTuningScript,
+        updateTouchConf: updateTouchConf,
+        restoreTouchConfKeys: restoreTouchConfKeys,
+        loadTouchTab: loadTouchTab,
+        loadHalStatus: loadHalStatus,
+        parseTouchConfigStatus: parseTouchConfigStatus,
+        touchHalDisplayLabel: touchHalDisplayLabel,
+        touchHalUnsupportedReason: touchHalUnsupportedReason,
+        applyHalRate: applyHalRate,
+        loadCloudStatus: loadCloudStatus,
+        parseCloudRateStatus: parseCloudRateStatus,
+        injectCloudRate: injectCloudRate,
+        restoreCloudRate: restoreCloudRate,
+        loadVsyncState: loadVsyncState,
+        parseVsyncEnabled: parseVsyncEnabled,
+        renderVsyncCard: renderVsyncCard,
+        setVsync: setVsync,
+        renderTouchPage: renderTouchPage,
+        bindTouchPageControls: bindTouchPageControls,
+        applyDebounceCard: applyDebounceCard,
+        applyGestureCard: applyGestureCard,
+        applyPerfCard: applyPerfCard,
+        applyPhaseCard: applyPhaseCard,
+        getTouchState: function () { return JSON.parse(JSON.stringify(APP.touch || {})); },
+        resetTouchState: function () {
+            APP.touch = {
+                loading: false, saving: false, loaded: false, error: '', lastMessage: '', conf: {}, confOrder: [],
+                hal: { supported: null, reason: '', path: '', current: '', currentValue: '', selected: '', values: '', error: '' },
+                cloud: { model: '', platform: '', supported: null, db: '', backup: '', sqlite: '', injected: '', error: '', busy: false },
+                vsync: { loaded: false, loading: false, enabled: null, error: '' }
+            };
+            return APP.touch;
         },
         simpleHash: simpleHash,
         sleep: sleep,
@@ -5537,6 +6295,15 @@ if (typeof window !== 'undefined') {
         getMockDeviceId: function () { return MOCK.deviceId; },
         getMockTouchTuningText: function () { return MOCK.touchTuningText; },
         getMockTouchTuningApplied: function () { return MOCK.touchTuningApplied; },
+        getMockTouchConfWrites: function () { return MOCK.touchConfWrites || 0; },
+        getMockHal: function () { return JSON.parse(JSON.stringify(MOCK.hal)); },
+        getMockCloud: function () { return JSON.parse(JSON.stringify(MOCK.cloud)); },
+        getMockVsyncDisable: function () { return MOCK.vsyncDisable; },
+        setMockHal: function (patch) { Object.assign(MOCK.hal, patch || {}); return MOCK.hal; },
+        setMockCloud: function (patch) { Object.assign(MOCK.cloud, patch || {}); return MOCK.cloud; },
+        setMockVsyncDisable: function (value) { MOCK.vsyncDisable = String(value); return MOCK.vsyncDisable; },
+        TAB_NAMES: TAB_NAMES,
+        TAB_META: TAB_META,
         resetMock: function () {
             MOCK.configText = MOCK_INITIAL_CONFIG;
             MOCK.logs = MOCK_INITIAL_LOGS.slice();
@@ -5547,6 +6314,25 @@ if (typeof window !== 'undefined') {
             MOCK.manualHz = 0;
             MOCK.touchTuningText = '';
             MOCK.touchTuningApplied = '';
+            MOCK.touchConfWrites = 0;
+            MOCK.vsyncDisable = 'false';
+            MOCK.hal = {
+                unsupported: false,
+                path: '/data/vendor/touchconfig/vnd_custom_config_main.xml',
+                values: '9,2,9,4,3,10,2,2,2,2,2,2,8,9,11,2,12',
+                current: 'default',
+                currentValue: '9',
+                selected: ''
+            };
+            MOCK.cloud = {
+                model: 'RMX5200',
+                platform: 'SM8850',
+                supported: 'yes',
+                db: 'yes',
+                sqlite: 'yes',
+                backup: 'no',
+                injected: '0'
+            };
             MOCK.paid = null;
         }
     };

@@ -74,4 +74,6 @@ fi
 log "===== uninstall.sh 结束 ====="
 cp -f "$LOG_FILE" "$PERSIST_LOG" 2>/dev/null && log "日志已另存到 $PERSIST_LOG"
 
+# v5.23：卸载时恢复触控优化参数（若启用）
+[ -f "$MODDIR/bin/apply_touch_tuning.sh" ] && sh "$MODDIR/bin/apply_touch_tuning.sh" restore >/dev/null 2>&1
 exit 0
