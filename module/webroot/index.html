@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.24</title>
+    <title>慕容触控采样率 v5.25</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -42,40 +42,10 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.24.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.25.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
                 <div class="status-line"><span>生效来源</span><b id="effective-source">—</b></div>
-            </div>
-
-            <div class="section-label">垂直同步</div>
-            <div class="card vsync-card">
-                <div class="status-line sync-toggle-line">
-                    <span>垂直同步 (VSync)</span>
-                    <label class="sync-switch">
-                        <input type="checkbox" id="vsync-toggle" aria-label="VSync 开关">
-                        <span class="sync-switch-slider" aria-hidden="true"></span>
-                    </label>
-                </div>
-                <div class="status-line"><span>当前状态</span><b id="vsync-state">检测中…</b></div>
-                <p class="hint">开启后界面绘制与屏幕刷新同步（减少撕裂）；关闭可降低延迟但可能出现撕裂。切换会写入 touch_tuning.conf 的 vsync_enabled 并立即应用。</p>
-            </div>
-
-            <div class="section-label">触显同步</div>
-            <div class="card sync-card">
-                <div class="status-line sync-toggle-line">
-                    <span>触显同步</span>
-                    <label class="sync-switch">
-                        <input type="checkbox" id="sync-toggle" aria-label="触显同步开关">
-                        <span class="sync-switch-slider" aria-hidden="true"></span>
-                    </label>
-                </div>
-                <div class="status-line"><span>当前刷新率</span><b id="sync-refresh">—</b></div>
-                <div class="status-line"><span>目标采样率</span><b id="sync-target">—</b></div>
-                <div class="status-line"><span>来源</span><b id="sync-source">—</b></div>
-                <div class="status-line"><span>开关状态</span><b id="sync-state">—</b></div>
-                <p id="sync-hint" class="sync-hint">检测中…</p>
-                <p class="sync-map">映射：60→120 · 90→180 · 120→240 · 144→288 · 155/165→360（按刷新率×2，取不小于的最小可用档）</p>
             </div>
 
             <div class="section-label">当前采样率</div>
@@ -100,6 +70,36 @@
                     <button type="button" id="btn-measure" class="btn btn-primary">真实报点率测试</button>
                 </div>
                 <pre id="measure-out" class="pre" hidden>—</pre>
+            </div>
+
+            <div class="section-label">垂直同步</div>
+            <div class="card vsync-card">
+                <div class="status-line sync-toggle-line">
+                    <span>垂直同步 (VSync)</span>
+                    <label class="sync-switch">
+                        <input type="checkbox" id="vsync-toggle" aria-label="VSync 开关">
+                        <span class="sync-switch-slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="status-line"><span>当前状态</span><b id="vsync-state">已开启（系统默认）</b></div>
+                <p class="hint">开启后界面绘制与屏幕刷新同步（减少撕裂）；关闭可降低延迟但可能出现撕裂。系统未设置（null）时按默认「开启」显示；切换会写入 touch_tuning.conf 的 vsync_enabled 并立即应用。</p>
+            </div>
+
+            <div class="section-label">触显同步</div>
+            <div class="card sync-card">
+                <div class="status-line sync-toggle-line">
+                    <span>触显同步</span>
+                    <label class="sync-switch">
+                        <input type="checkbox" id="sync-toggle" aria-label="触显同步开关">
+                        <span class="sync-switch-slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="status-line"><span>当前刷新率</span><b id="sync-refresh">—</b></div>
+                <div class="status-line"><span>目标采样率</span><b id="sync-target">—</b></div>
+                <div class="status-line"><span>来源</span><b id="sync-source">—</b></div>
+                <div class="status-line"><span>开关状态</span><b id="sync-state">—</b></div>
+                <p id="sync-hint" class="sync-hint">检测中…</p>
+                <p class="sync-map">映射：60→120 · 90→180 · 120→240 · 144→288 · 155/165→360（按刷新率×2，取不小于的最小可用档）</p>
             </div>
 
             <div class="section-label">快捷操作</div>
@@ -507,12 +507,12 @@
                     <span class="chevron">›</span>
                 </button>
             </div>
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.24 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.25 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.24</span>
+        <span>慕容触控采样率 v5.25</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>

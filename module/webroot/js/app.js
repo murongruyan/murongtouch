@@ -1,9 +1,9 @@
 /* ============================================================
- * 慕容触控采样率 v5.24 · KernelSU WebUI
+ * 慕容触控采样率 v5.25 · KernelSU WebUI
  * 五页：主页 / 配置 / 触控 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化；
- * v5.23：新增「触控」页；v5.24：范围参数改进度条并精简为四块（防抖/手势/性能/相位）+ 主页 VSync。
+ * v5.23：新增「触控」页；v5.24：范围参数改 slider 并精简为四块；v5.25：修复 VSync null 显示 + 主页顺序调整。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
  * ============================================================ */
 'use strict';
@@ -12,7 +12,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.24.0';
+var WEBUI_VERSION = '5.25.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -99,7 +99,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.24.0',
+    moduleVersion: 'v5.25.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -136,7 +136,7 @@ var APP = {
         lastMessage: '',
         conf: {},
         confOrder: [],
-        vsync: { loaded: false, loading: false, enabled: null, error: '' }
+        vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' }
     },
     bar: { index: 0 },
     modalResolver: null,
@@ -512,7 +512,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.24.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.25.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -574,7 +574,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.24.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.25.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -666,7 +666,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.24.0 后端探测报告',
+            return ['touch_rate_daemon v5.25.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -2318,7 +2318,7 @@ function buildTouchConfText(values, order) {
         if (known.indexOf(key) < 0 && extra.indexOf(key) < 0) extra.push(key);
     });
     var lines = [
-        '# 慕容触控采样率 v5.24 触控参数（KEY=VALUE，UTF-8；# 注释）',
+        '# 慕容触控采样率 v5.25 触控参数（KEY=VALUE，UTF-8；# 注释）',
         '# 由 WebUI「触控」页按卡片合并写入；删掉某项即不再由模块管理该项',
         '# 键：touch_slop scroll_friction fling_velocity touch_priority vtouch_switch multi_press_timeout long_press_timeout',
         '#     vsync_enabled cpufreq_limit_disabled cpufreq_bounce_disabled enable_adpf enable_hint_manager',
@@ -2489,52 +2489,67 @@ async function loadTouchTab(options) {
     }
 }
 
-/* ---------- VSync（主页开关；读 settings get global hwui.disable_vsync） ---------- */
-function parseVsyncEnabled(raw) {
+/* ---------- VSync（主页开关；读 settings get global hwui.disable_vsync） ----------
+ * 真机未设置时该键为 null（系统默认），必须按「默认开启」显示，不能卡在检测中：
+ *   false → VSync 开启（开关开，文案「已开启」）
+ *   true  → VSync 关闭（开关关，文案「已关闭」）
+ *   null / 空 / 命令失败 → 系统默认开启（开关开，文案「已开启（系统默认）」）
+ * ------------------------------------------------------------------ */
+function parseVsyncState(raw) {
     var value = String(raw == null ? '' : raw).trim().toLowerCase();
-    if (value === 'true') return false;
-    if (value === 'false') return true;
-    return null;
+    if (value === 'true') return { enabled: false, source: 'setting', text: '已关闭' };
+    if (value === 'false') return { enabled: true, source: 'setting', text: '已开启' };
+    return { enabled: true, source: 'default', text: '已开启（系统默认）' };
+}
+
+function parseVsyncEnabled(raw) {
+    return parseVsyncState(raw).enabled;
+}
+
+function applyVsyncState(state, raw) {
+    var vsync = APP.touch.vsync;
+    vsync.enabled = state.enabled;
+    vsync.text = state.text;
+    vsync.source = state.source;
+    vsync.raw = String(raw == null ? '' : raw).trim();
+    vsync.loaded = true;
+    return vsync;
 }
 
 async function loadVsyncState(options) {
+    options = options || {};
     var vsync = APP.touch.vsync;
-    if (vsync.loading) return false;
+    if (vsync.loading) return vsync.enabled;
     vsync.loading = true;
     try {
         var out = await runCommand(CMD.vsyncGet(), { timeout: 15000 });
-        vsync.enabled = parseVsyncEnabled(out);
-        vsync.error = '';
-        vsync.loaded = true;
+        applyVsyncState(parseVsyncState(out), out);
     } catch (e) {
-        vsync.error = e && e.message ? e.message : String(e);
+        /* 读取失败也落到明确状态：按系统默认「开启」显示 */
+        applyVsyncState(parseVsyncState(''), '');
     } finally {
         vsync.loading = false;
-        if (!options || !options.silent) renderVsyncCard();
+        renderVsyncCard();
     }
     return vsync.enabled;
 }
 
 function renderVsyncCard() {
     var vsync = (APP.touch && APP.touch.vsync) || {};
+    var state = vsync.text ? vsync : parseVsyncState('');
     var toggle = $('vsync-toggle');
-    if (toggle) toggle.checked = vsync.enabled === true;
-    var text;
-    var danger = false;
-    if (vsync.error) { text = '检测失败：' + vsync.error; danger = true; }
-    else if (vsync.enabled === null || vsync.enabled === undefined) text = '检测中…';
-    else text = vsync.enabled ? '已开启' : '已关闭';
-    setText('vsync-state', text);
+    if (toggle) toggle.checked = state.enabled === true;
+    setText('vsync-state', vsync.loading ? '读取中…' : (state.text || '已开启（系统默认）'));
     var stateNode = $('vsync-state');
-    if (stateNode) stateNode.style.color = danger ? 'var(--danger)' : '';
+    if (stateNode) stateNode.style.color = '';
 }
 
 async function setVsync(enabled) {
     var result = await updateTouchConf({ vsync_enabled: enabled ? '1' : '0' }, [], 'VSync');
     if (result.ok) toast('VSync 已' + (enabled ? '开启' : '关闭') + '并保存', 'ok', 3000);
     else toast('VSync 设置失败：' + result.error, 'err', 4200);
-    await loadVsyncState({ silent: true });
-    renderVsyncCard();
+    /* 切换后重新读取系统值并刷新开关/文案（读取失败也会落到系统默认状态） */
+    await loadVsyncState();
     return result.ok;
 }
 
@@ -4689,7 +4704,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.24.0';
+var ABOUT_VERSION = 'v5.25.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -5828,6 +5843,7 @@ if (typeof window !== 'undefined') {
         restoreTouchConfKeys: restoreTouchConfKeys,
         loadTouchTab: loadTouchTab,
         loadVsyncState: loadVsyncState,
+        parseVsyncState: parseVsyncState,
         parseVsyncEnabled: parseVsyncEnabled,
         renderVsyncCard: renderVsyncCard,
         setVsync: setVsync,
@@ -5846,7 +5862,7 @@ if (typeof window !== 'undefined') {
         resetTouchState: function () {
             APP.touch = {
                 loading: false, saving: false, loaded: false, error: '', lastMessage: '', conf: {}, confOrder: [],
-                vsync: { loaded: false, loading: false, enabled: null, error: '' }
+                vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' }
             };
             return APP.touch;
         },
