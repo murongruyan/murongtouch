@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.23</title>
+    <title>慕容触控采样率 v5.24</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -42,7 +42,7 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.23.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.24.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
                 <div class="status-line"><span>生效来源</span><b id="effective-source">—</b></div>
@@ -218,8 +218,8 @@
 
             <div class="section-label">触控优化</div>
             <div class="card note-card">
-                <p class="hint">触控防抖、HAL 采样率、云控采样率注入、手势与优先级、性能释放、相位偏移与 VSync 已迁移到「触控」页统一管理
-                    （配置仍为 /data/adb/murong_touch/touch_tuning.conf，按卡片合并写入，默认不启用）。</p>
+                <p class="hint">触控防抖、手势与优先级、性能释放、相位偏移与 VSync 均已迁移到「触控」页统一管理
+                    （配置仍为 /data/adb/murong_touch/touch_tuning.conf，按卡片合并写入，默认不启用；采样率配置仍在本页上方「采样率」区块）。</p>
                 <div class="btn-row">
                     <button type="button" id="btn-goto-touch" class="btn btn-primary">打开「触控」页</button>
                 </div>
@@ -227,10 +227,10 @@
 
             <p class="meta-line">配置修改会实时写入 config/采样率.txt 并热重载，无需手动保存。</p></section>
 
-        <!-- ==================== 3. 触控（v5.23：移植「大肥鱼-拼好控」触控选项） ==================== -->
+        <!-- ==================== 3. 触控（v5.24：本模块自有风格） ==================== -->
         <section id="pane-touch" class="pane" role="tabpanel" aria-label="触控" hidden>
             <div class="alert alert-warn">
-                <b>风险提示：</b>本页会修改触控手感、手势判定、性能调度与系统参数，所有功能默认关闭、不主动写入；部分机型可能无效甚至异常。请逐项少量调整，并保留「恢复默认」手段。
+                <b>风险提示：</b>触控参数会改变触摸手感、手势判定与系统调度，所有项默认不写入；只有点卡片「应用」才写入配置并立即生效，部分机型可能无效。可随时「恢复默认」。
             </div>
             <div class="alert alert-err" id="touch-notice" hidden></div>
             <div id="touch-page-result" class="inline-result" hidden></div>
@@ -240,140 +240,86 @@
                 <span class="tag" id="touch-conf-tag">未启用</span>
             </div>
             <div class="card" id="touch-debounce-card">
-                <div class="status-line"><span>配置文件</span><b id="touch-conf-path">/data/adb/murong_touch/touch_tuning.conf</b></div>
-                <div class="tune-list" id="touch-debounce-list">
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="touch_slop">
-                            <span class="tune-name">触摸防抖<span class="tune-key">touch_slop · 0 ~ 50，默认 3（越小越灵敏，也更易误触）</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="touch_slop" placeholder="默认 3" inputmode="numeric" disabled aria-label="touch_slop">
-                        <button type="button" class="tune-reset" data-touch-reset="touch_slop">恢复默认</button>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">触摸防抖</span>
+                        <span class="range-value"><b data-touch-disp="touch_slop">3</b></span>
                     </div>
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="scroll_friction">
-                            <span class="tune-name">滑动摩擦系数<span class="tune-key">scroll_friction · 0 ~ 1，默认 0.035（越小滑得越远，支持自定义）</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="scroll_friction" placeholder="默认 0.035" inputmode="decimal" disabled aria-label="scroll_friction">
-                        <button type="button" class="tune-reset" data-touch-reset="scroll_friction">恢复默认</button>
-                    </div>
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="fling_velocity">
-                            <span class="tune-name">最小滑动速度<span class="tune-key">fling_velocity · 0 ~ 500，默认 35（越低越容易甩动）</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="fling_velocity" placeholder="默认 35" inputmode="numeric" disabled aria-label="fling_velocity">
-                        <button type="button" class="tune-reset" data-touch-reset="fling_velocity">恢复默认</button>
-                    </div>
+                    <input type="range" class="range-input" id="touch_slop" data-touch-range="touch_slop" min="0" max="50" step="1" value="3" aria-label="touch_slop">
+                    <p class="range-hint">范围 0~50 · 默认 3（越小越灵敏，也更容易误触）</p>
                 </div>
-                <p class="hint">勾选需要启用的项并填值，点「应用」后写入配置并立即生效；「恢复默认」删除该项配置并重新应用（重启后系统恢复默认）。</p>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">滑动摩擦系数</span>
+                        <span class="range-value"><b data-touch-disp="scroll_friction">0.035</b></span>
+                    </div>
+                    <input type="range" class="range-input" id="scroll_friction" data-touch-range="scroll_friction" min="0" max="1" step="0.001" value="0.035" aria-label="scroll_friction">
+                    <p class="range-hint">范围 0~1 · 默认 0.035（越小滑得越远）</p>
+                </div>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">最小滑动速度</span>
+                        <span class="range-value"><b data-touch-disp="fling_velocity">35</b></span>
+                    </div>
+                    <input type="range" class="range-input" id="fling_velocity" data-touch-range="fling_velocity" min="0" max="500" step="5" value="35" aria-label="fling_velocity">
+                    <p class="range-hint">范围 0~500 · 默认 35（越低越容易甩动）</p>
+                </div>
                 <div class="btn-row">
                     <button type="button" id="btn-touch-debounce-apply" class="btn btn-primary">应用</button>
-                    <button type="button" id="btn-touch-debounce-reset" class="btn btn-secondary">全部恢复默认</button>
+                    <button type="button" id="btn-touch-debounce-reset" class="btn btn-secondary">恢复默认</button>
                 </div>
                 <div id="touch-debounce-result" class="inline-result" hidden></div>
             </div>
 
-            <div class="section-label-row">
-                <span class="section-label">触控采样率 · HAL 通道</span>
-                <span class="tag" id="touch-hal-state">检测中…</span>
-            </div>
-            <div class="card" id="touch-hal-card">
-                <p class="hint" id="touch-hal-note">通过改写触控 HAL 配置端口切换采样率，点击后需重启触控 HAL 服务（约 3 秒，期间可能短暂失灵）。仅部分新机型适配（OPPO Find X9 Ultra、一加15/15T、Ace6 系列等），其他机型请自测。</p>
-                <div class="pill-row" id="touch-hal-options" role="group" aria-label="HAL 采样率档位">
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="default">默认</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="180">180</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="240">240</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="298">298</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="307">307</button>
-                </div>
-                <p class="hint">通用模式 · 原始 value（1~12）：其他机型同一 value 对应的实际采样率不同，切换后请用测频率工具自行验证。</p>
-                <div class="pill-row touch-hal-raw" id="touch-hal-raw-options" role="group" aria-label="HAL 原始 value">
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-1">v1</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-2">v2</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-3">v3</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-4">v4</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-5">v5</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-6">v6</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-7">v7</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-8">v8</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-9">v9</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-10">v10</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-11">v11</button>
-                    <button type="button" class="pill-option touch-hal-btn" data-hal-rate="value-12">v12</button>
-                </div>
-                <div id="touch-hal-result" class="inline-result" hidden></div>
-            </div>
-
-            <div class="section-label">云控采样率注入 · 欧加数据库</div>
-            <div class="card" id="touch-cloud-card">
-                <p class="hint">与上方 HAL 通道方案相互独立，二选一使用。此方案改写「应用增强服务」(com.oplus.cosa) 游戏数据库的采样率字段，默认不注入，首次注入前自动备份原始数据库。</p>
-                <div class="status-line"><span>设备型号</span><b id="touch-cloud-model">检测中…</b></div>
-                <div class="status-line"><span>支持状态</span><b id="touch-cloud-supported">检测中…</b></div>
-                <div class="status-line"><span>数据库 / sqlite3</span><b id="touch-cloud-db">检测中…</b></div>
-                <div class="status-line"><span>注入状态</span><b id="touch-cloud-injected">检测中…</b></div>
-                <div class="status-line"><span>原始数据备份</span><b id="touch-cloud-backup">检测中…</b></div>
-                <p class="hint hint-warn">注入会改写欧加（应用增强服务）数据库；「恢复默认」会还原备份，没有备份时会清除应用增强服务数据（可能需重启手机 / 重开游戏生效）。</p>
-                <div class="btn-row">
-                    <button type="button" id="btn-touch-cloud-inject" class="btn btn-primary">注入采样率</button>
-                    <button type="button" id="btn-touch-cloud-restore" class="btn btn-danger">恢复默认</button>
-                </div>
-                <div id="touch-cloud-result" class="inline-result" hidden></div>
-            </div>
-
             <div class="section-label">手势与优先级</div>
             <div class="card" id="touch-gesture-card">
-                <div class="tune-list">
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="touch_priority">
-                            <span class="tune-name">触控优先级<span class="tune-key">touch_priority · -20 ~ 0，默认 -19（越小优先级越高）</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="touch_priority" placeholder="默认 -19" inputmode="numeric" disabled aria-label="touch_priority">
-                        <button type="button" class="tune-reset" data-touch-reset="touch_priority">恢复默认</button>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">触控优先级</span>
+                        <span class="range-value"><b data-touch-disp="touch_priority">-19</b></span>
                     </div>
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <span class="tune-name">单点轻触<span class="tune-key">vtouch_switch · settings system（默认 / 关闭）</span></span>
-                        </label>
-                        <div class="pill-row touch-inline-pills" id="touch-vtouch-options">
-                            <button type="button" class="pill-option" data-vtouch="default">默认</button>
-                            <button type="button" class="pill-option" data-vtouch="0">关闭</button>
-                        </div>
+                    <input type="range" class="range-input" id="touch_priority" data-touch-range="touch_priority" min="-20" max="0" step="1" value="-19" aria-label="touch_priority">
+                    <p class="range-hint">范围 -20~0 · 默认 -19（越小优先级越高）</p>
+                </div>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">双击间隔</span>
+                        <span class="range-value"><b data-touch-disp="multi_press_timeout">300</b><span class="range-unit">ms</span></span>
                     </div>
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="multi_press_timeout">
-                            <span class="tune-name">双击间隔<span class="tune-key">double_tap → multi_press_timeout · 100 ~ 1000ms，默认 300</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="multi_press_timeout" placeholder="默认 300" inputmode="numeric" disabled aria-label="multi_press_timeout">
-                        <button type="button" class="tune-reset" data-touch-reset="multi_press_timeout">恢复默认</button>
+                    <input type="range" class="range-input" id="touch-double-tap" data-touch-range="multi_press_timeout" min="100" max="1000" step="10" value="300" aria-label="multi_press_timeout">
+                    <p class="range-hint">范围 100~1000ms · 默认 300（越大双击判定越宽松）</p>
+                </div>
+                <div class="range-field">
+                    <div class="range-head">
+                        <span class="range-label">长按延迟</span>
+                        <span class="range-value"><b data-touch-disp="long_press_timeout">400</b><span class="range-unit">ms</span></span>
                     </div>
-                    <div class="tune-row">
-                        <label class="tune-label">
-                            <input type="checkbox" class="tune-check" data-touch-toggle="long_press_timeout">
-                            <span class="tune-name">长按延迟<span class="tune-key">long_press → long_press_timeout · 100 ~ 1000ms，默认 400</span></span>
-                        </label>
-                        <input type="text" class="input tune-input" data-touch-input="long_press_timeout" placeholder="默认 400" inputmode="numeric" disabled aria-label="long_press_timeout">
-                        <button type="button" class="tune-reset" data-touch-reset="long_press_timeout">恢复默认</button>
+                    <input type="range" class="range-input" id="touch-long-press" data-touch-range="long_press_timeout" min="100" max="1000" step="10" value="400" aria-label="long_press_timeout">
+                    <p class="range-hint">范围 100~1000ms · 默认 400（调低响应更快，也易误触）</p>
+                </div>
+                <div class="range-choice">
+                    <span class="range-label">单点轻触</span>
+                    <div class="pill-row touch-inline-pills" id="touch-vtouch-options" role="group" aria-label="单点轻触">
+                        <button type="button" class="pill-option is-active" data-vtouch="default">默认</button>
+                        <button type="button" class="pill-option" data-vtouch="0">关闭</button>
                     </div>
                 </div>
-                <p class="hint">「恢复默认」删除该项配置并重新应用（重启后系统恢复默认）；未勾选项不写入。</p>
+                <p class="range-hint">默认 = 不写入该项（跟随系统）；关闭 = 写入 vtouch_switch=0</p>
                 <div class="btn-row">
                     <button type="button" id="btn-touch-gesture-apply" class="btn btn-primary">应用手势设置</button>
+                    <button type="button" id="btn-touch-gesture-reset" class="btn btn-secondary">恢复默认</button>
                 </div>
                 <div id="touch-gesture-result" class="inline-result" hidden></div>
             </div>
 
             <div class="section-label">性能释放</div>
             <div class="card" id="touch-perf-card">
-                <p class="hint hint-warn">性能参数更激进，可能增加发热与耗电；关闭并应用会写 0（恢复该项系统行为）。部分机型节点不存在时无效果。</p>
+                <p class="hint hint-warn">性能参数更激进，可能增加发热与耗电；开关状态会写入配置（0/1），部分机型节点不存在时无效果。</p>
                 <div class="status-line sync-toggle-line">
                     <span>解除 CPU 频率限制</span>
                     <label class="sync-switch"><input type="checkbox" id="touch-perf-cpufreq-limit" aria-label="cpufreq_limit_disabled"><span class="sync-switch-slider" aria-hidden="true"></span></label>
                 </div>
-                <p class="hint">解除欧加游戏优化框架（game_opt）对 CPU 频率的封顶，重载时可冲最高频。</p>
+                <p class="hint">解除系统游戏优化框架（game_opt）对 CPU 频率的封顶，重载时可冲到最高频。</p>
                 <div class="status-line sync-toggle-line">
                     <span>禁用 CPU 频率弹跳</span>
                     <label class="sync-switch"><input type="checkbox" id="touch-perf-cpufreq-bounce" aria-label="cpufreq_bounce_disabled"><span class="sync-switch-slider" aria-hidden="true"></span></label>
@@ -383,7 +329,7 @@
                     <span>ADPF CPU Hint</span>
                     <label class="sync-switch"><input type="checkbox" id="touch-perf-adpf" aria-label="enable_adpf"><span class="sync-switch-slider" aria-hidden="true"></span></label>
                 </div>
-                <p class="hint">让 SurfaceFlinger 通过 ADPF 向 PowerHAL 上报合成负载触发 CPU 提频。</p>
+                <p class="hint">让系统合成线程（SurfaceFlinger）通过 ADPF 上报合成负载，触发 CPU 提频。</p>
                 <div class="status-line sync-toggle-line">
                     <span>HWUI Hint Manager</span>
                     <label class="sync-switch"><input type="checkbox" id="touch-perf-hint" aria-label="enable_hint_manager"><span class="sync-switch-slider" aria-hidden="true"></span></label>
@@ -391,6 +337,7 @@
                 <p class="hint">绘制繁忙时通过 HintManager 请求 CPU 加速，提升滑动跟手度。</p>
                 <div class="btn-row">
                     <button type="button" id="btn-touch-perf-apply" class="btn btn-primary">应用</button>
+                    <button type="button" id="btn-touch-perf-reset" class="btn btn-secondary">恢复默认</button>
                 </div>
                 <div id="touch-perf-result" class="inline-result" hidden></div>
             </div>
@@ -403,15 +350,39 @@
                 <div class="alert alert-err">
                     <b>高危：</b>高级调试项，错误参数可能导致显示异常甚至无法开机；默认不启用，请确认理解风险后再应用。
                 </div>
-                <div class="touch-grid" id="touch-phase-inputs">
-                    <label class="touch-field"><span class="touch-field-label">普通帧早期合成</span><input type="text" class="input" data-touch-phase="early_phase_offset_ns" placeholder="默认 400" inputmode="numeric" aria-label="early_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">应用帧早期合成</span><input type="text" class="input" data-touch-phase="early_app_phase_offset_ns" placeholder="默认 400" inputmode="numeric" aria-label="early_app_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">OpenGL 帧早期合成</span><input type="text" class="input" data-touch-phase="early_gl_phase_offset_ns" placeholder="默认 400" inputmode="numeric" aria-label="early_gl_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">应用 OpenGL 帧合成</span><input type="text" class="input" data-touch-phase="early_gl_app_phase_offset_ns" placeholder="默认 2500" inputmode="numeric" aria-label="early_gl_app_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">高刷普通帧早期</span><input type="text" class="input" data-touch-phase="high_fps_early_phase_offset_ns" placeholder="默认 3500" inputmode="numeric" aria-label="high_fps_early_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">高刷 OpenGL 帧早期</span><input type="text" class="input" data-touch-phase="high_fps_early_gl_phase_offset_ns" placeholder="默认 3500" inputmode="numeric" aria-label="high_fps_early_gl_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">高刷应用帧后期</span><input type="text" class="input" data-touch-phase="high_fps_late_app_phase_offset_ns" placeholder="默认 4500" inputmode="numeric" aria-label="high_fps_late_app_phase_offset_ns"></label>
-                    <label class="touch-field"><span class="touch-field-label">等待 VSync 阈值</span><input type="text" class="input" data-touch-phase="phase_offset_threshold_for_next_vsync_ns" placeholder="默认 7100" inputmode="numeric" aria-label="phase_offset_threshold_for_next_vsync_ns"></label>
+                <div class="touch-grid" id="touch-phase-sliders">
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">普通帧早期合成</span><span class="range-value"><b data-touch-disp="early_phase_offset_ns">400</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-early_phase_offset_ns" data-touch-range="early_phase_offset_ns" min="0" max="20000" step="100" value="400" aria-label="early_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">应用帧早期合成</span><span class="range-value"><b data-touch-disp="early_app_phase_offset_ns">400</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-early_app_phase_offset_ns" data-touch-range="early_app_phase_offset_ns" min="0" max="20000" step="100" value="400" aria-label="early_app_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">OpenGL 帧早期合成</span><span class="range-value"><b data-touch-disp="early_gl_phase_offset_ns">400</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-early_gl_phase_offset_ns" data-touch-range="early_gl_phase_offset_ns" min="0" max="20000" step="100" value="400" aria-label="early_gl_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">应用 OpenGL 帧合成</span><span class="range-value"><b data-touch-disp="early_gl_app_phase_offset_ns">2500</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-early_gl_app_phase_offset_ns" data-touch-range="early_gl_app_phase_offset_ns" min="0" max="20000" step="100" value="2500" aria-label="early_gl_app_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">高刷普通帧早期</span><span class="range-value"><b data-touch-disp="high_fps_early_phase_offset_ns">3500</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-high_fps_early_phase_offset_ns" data-touch-range="high_fps_early_phase_offset_ns" min="0" max="20000" step="100" value="3500" aria-label="high_fps_early_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">高刷 OpenGL 帧早期</span><span class="range-value"><b data-touch-disp="high_fps_early_gl_phase_offset_ns">3500</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-high_fps_early_gl_phase_offset_ns" data-touch-range="high_fps_early_gl_phase_offset_ns" min="0" max="20000" step="100" value="3500" aria-label="high_fps_early_gl_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">高刷应用帧后期</span><span class="range-value"><b data-touch-disp="high_fps_late_app_phase_offset_ns">4500</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-high_fps_late_app_phase_offset_ns" data-touch-range="high_fps_late_app_phase_offset_ns" min="0" max="20000" step="100" value="4500" aria-label="high_fps_late_app_phase_offset_ns">
+                    </div>
+                    <div class="range-field range-field-compact">
+                        <div class="range-head"><span class="range-label">等待 VSync 阈值</span><span class="range-value"><b data-touch-disp="phase_offset_threshold_for_next_vsync_ns">7100</b></span></div>
+                        <input type="range" class="range-input" id="touch-phase-phase_offset_threshold_for_next_vsync_ns" data-touch-range="phase_offset_threshold_for_next_vsync_ns" min="0" max="20000" step="100" value="7100" aria-label="phase_offset_threshold_for_next_vsync_ns">
+                    </div>
                 </div>
                 <div class="btn-row">
                     <button type="button" id="btn-touch-phase-apply" class="btn btn-danger">应用</button>
@@ -420,7 +391,7 @@
                 <div id="touch-phase-result" class="inline-result" hidden></div>
             </details>
 
-            <p class="meta-line">写入前会读取并合并 /data/adb/murong_touch/touch_tuning.conf，只更新本页涉及的 key；写入后回读校验并执行 apply_touch_tuning.sh apply。</p>
+            <p class="meta-line">写入前读取并合并 /data/adb/murong_touch/touch_tuning.conf，只更新本卡片 key；写入后回读校验并执行 apply_touch_tuning.sh apply。</p>
         </section>
 
         <!-- ==================== 4. 日志 ==================== -->
@@ -536,12 +507,12 @@
                     <span class="chevron">›</span>
                 </button>
             </div>
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.23 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.24 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.23</span>
+        <span>慕容触控采样率 v5.24</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>

@@ -3873,7 +3873,7 @@ body.subpage-open .app-footer {
 }
 
 /* ============================================================
- * 21. v5.23 触控页（「大肥鱼-拼好控」触控选项）+ 五 Tab 底栏适配
+ * 21. v5.24 触控页（本模块自有粉色风格：进度条 slider）+ 五 Tab 底栏适配
  * ============================================================ */
 /* 底栏 5 个 Tab：等宽收缩，360px 视口不溢出 */
 .bar-tab {
@@ -3893,31 +3893,117 @@ body.subpage-open .app-footer {
     width: 58px;
 }
 
-/* 触控页：行内「恢复默认」小按钮 */
-.tune-reset {
-    flex: none;
-    min-height: 34px;
-    padding: 0 10px;
-    border: none;
-    border-radius: var(--radius-pill);
-    background: var(--danger-soft);
-    color: var(--danger);
-    font-size: 11.5px;
+/* 触控页：参数进度条（--range-progress 由 app.js 按当前值更新） */
+.range-field {
+    padding: 11px 16px 2px;
+    border-top: 1px solid var(--divider);
+}
+
+.range-field:first-of-type {
+    border-top: none;
+}
+
+.range-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.range-label {
+    color: var(--ink);
+    font-size: 14px;
     font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: transform .1s ease, opacity .15s ease;
 }
 
-.tune-reset:active {
-    transform: scale(0.95);
+.range-value {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
 }
 
-.tune-reset:disabled {
-    opacity: 0.55;
+.range-unit {
+    margin-left: 2px;
+    color: var(--row-sub);
+    font-size: 11.5px;
+    font-weight: 500;
 }
 
-/* 触控页：手势内联胶囊 / HAL 原始 value 网格 */
+.range-input {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 30px;
+    margin: 2px 0 0;
+    background: transparent;
+    outline: none;
+}
+
+.range-input::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(to right,
+        var(--accent) 0%,
+        var(--accent) var(--range-progress, 0%),
+        var(--divider) var(--range-progress, 0%),
+        var(--divider) 100%);
+}
+
+.range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -8px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--surface, #FFFFFF);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
+    transition: transform .12s ease;
+}
+
+.range-input:active::-webkit-slider-thumb {
+    transform: scale(1.08);
+}
+
+.range-input::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--divider);
+}
+
+.range-input::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+}
+
+.range-input::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--surface, #FFFFFF);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
+}
+
+.range-hint {
+    margin: 0 0 10px;
+    color: var(--row-sub);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+
+/* 单点轻触两选 */
+.range-choice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px 2px;
+    border-top: 1px solid var(--divider);
+}
+
 .touch-inline-pills {
     margin: 0;
     flex-wrap: nowrap;
@@ -3929,41 +4015,40 @@ body.subpage-open .app-footer {
     font-size: 13px;
 }
 
-.touch-hal-raw {
-    gap: 6px;
-}
-
-.touch-hal-raw .pill-option {
-    min-height: 34px;
-    min-width: 42px;
-    padding: 0 8px;
-    font-size: 12.5px;
-}
-
-/* 触控页：相位偏移 8 项两列网格 */
+/* 相位偏移：8 项两列紧凑网格 */
 .touch-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin: 12px 16px 4px;
+    gap: 4px 10px;
+    margin: 8px 16px 4px;
 }
 
-.touch-field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
+.range-field-compact {
+    padding: 8px 0 0;
+    border-top: none;
 }
 
-.touch-field-label {
-    color: var(--row-sub);
-    font-size: 11.5px;
-    line-height: 1.35;
+.range-field-compact .range-label {
+    font-size: 12px;
+    font-weight: 500;
 }
 
-.touch-field .input {
-    min-height: 40px;
-    font-size: 14px;
+.range-field-compact .range-value {
+    font-size: 12px;
+}
+
+.range-field-compact .range-input {
+    height: 26px;
+}
+
+.range-field-compact .range-input::-webkit-slider-runnable-track {
+    height: 5px;
+}
+
+.range-field-compact .range-input::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -6.5px;
 }
 
 /* 触控页：高级折叠卡片 */
@@ -3999,19 +4084,13 @@ body.subpage-open .app-footer {
     margin: 0 16px 8px;
 }
 
-/* 触控页：卡片内按钮行留出内边距 */
+/* 触控页：卡片内按钮行/结果留出内边距 */
 #pane-touch .btn-row {
-    padding: 0 16px 14px;
+    padding: 6px 16px 14px;
 }
 
 #pane-touch .inline-result {
     margin: 0 16px 12px;
-}
-
-#touch-conf-path {
-    max-width: 62%;
-    word-break: break-all;
-    text-align: right;
 }
 
 /* 主页 VSync 卡片沿用触显同步卡片间距 */
