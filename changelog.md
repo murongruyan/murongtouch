@@ -3,6 +3,10 @@
 > 本文件由发布工作流在每次发版时自动在最上方插入新版本段落；也可以手动编辑。
 > 模块内的在线更新（`update.json`）与 Release 说明都会引用本文件。
 
+## v5.26.1 (761) - 2026-11-13
+
+1. release: touch module v5.26 (META-INF/customize + 应用增强服务接管修复)
+
 ## v5.25.1 (751) - 2026-10-25
 
 1. release: touch module v5.25 (VSync 状态修复 + 主页采样率上移)
