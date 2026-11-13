@@ -1,9 +1,9 @@
 /* ============================================================
- * 慕容触控采样率 v5.25 · KernelSU WebUI
+ * 慕容触控采样率 v5.26 · KernelSU WebUI
  * 五页：主页 / 配置 / 触控 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化；
- * v5.23：新增「触控」页；v5.24：范围参数改 slider 并精简为四块；v5.25：修复 VSync null 显示 + 主页顺序调整。
+ * v5.23：新增「触控」页；v5.24：范围参数改 slider；v5.25：VSync null 显示 + 主页顺序；v5.26：应用增强服务（Cosa）接管修复卡片。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
  * ============================================================ */
 'use strict';
@@ -12,7 +12,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.25.0';
+var WEBUI_VERSION = '5.26.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -51,6 +51,8 @@ var PREMIUM_MIN_COMPONENT_VERSION = '5.0.0';
 var TOUCH_TUNING_DIR = '/data/adb/murong_touch';
 var TOUCH_TUNING_PATH = TOUCH_TUNING_DIR + '/touch_tuning.conf';
 var TOUCH_TUNING_APPLY_SCRIPT = MOD + '/bin/apply_touch_tuning.sh';
+/* v5.26：应用增强服务（com.oplus.cosa）接管修复 */
+var COSA_FIX_SCRIPT = MOD + '/bin/cosa_fix.sh';
 
 var ANY_HZ = [120, 180, 240, 288, 360, 400];
 var HZ_TO_CODE = { 120: 2, 180: 4, 240: 3, 288: 5, 360: 1, 400: 9 };
@@ -99,7 +101,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.25.0',
+    moduleVersion: 'v5.26.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -136,7 +138,24 @@ var APP = {
         lastMessage: '',
         conf: {},
         confOrder: [],
-        vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' }
+        vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' },
+        cosaFix: {
+            loaded: false,
+            loading: false,
+            saving: false,
+            enabled: false,
+            supported: null,
+            model: '',
+            platform: '',
+            db: '',
+            backup: '',
+            sqlite: '',
+            injected: '0',
+            reason: '',
+            error: '',
+            lastMessage: '',
+            lastError: false
+        }
     },
     bar: { index: 0 },
     modalResolver: null,
@@ -391,6 +410,10 @@ var CMD = {
     restoreTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" restore; echo "__RESTORE_DONE__:$?"'; },
     /* VSync 状态（settings get global hwui.disable_vsync） */
     vsyncGet: function () { return 'settings get global hwui.disable_vsync 2>/dev/null'; },
+    /* v5.26：应用增强服务（com.oplus.cosa）接管修复 */
+    cosaFixStatus: function () { return 'sh "' + COSA_FIX_SCRIPT + '" status 2>&1'; },
+    cosaFixEnable: function () { return 'sh "' + COSA_FIX_SCRIPT + '" enable 2>&1'; },
+    cosaFixDisable: function () { return 'sh "' + COSA_FIX_SCRIPT + '" disable 2>&1'; },
     collectDiag: function () {
         var MOD_PATH = MOD;
         var script = 'sh "' + MOD_PATH + '/bin/collect_diag.sh"';
@@ -512,7 +535,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.25.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.26.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -543,6 +566,18 @@ var MOCK = {
     touchTuningApplied: '',
     touchConfWrites: 0,
     vsyncDisable: 'false',
+    cosaFix: {
+        enabled: false,
+        model: 'RMX5200',
+        platform: 'SM8850',
+        supported: 'yes',
+        db: 'yes',
+        backup: 'no',
+        sqlite: 'yes',
+        injected: '0',
+        reason: ''
+    },
+    cosaFixCalls: { status: 0, enable: 0, disable: 0 },
     apps: [
         { pkg: 'com.tencent.tmgp.sgame', label: '王者荣耀' },
         { pkg: 'com.miHoYo.Yuanshen', label: '原神' },
@@ -574,7 +609,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.25.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.26.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -622,6 +657,45 @@ function mockExec(cmd) {
             if (c.indexOf('rm -f') >= 0) { MOCK.touchTuningText = ''; return '__DELETE_OK__'; }
             if (c.indexOf('cat ') >= 0) return MOCK.touchTuningText;
         }
+        /* v5.26：应用增强服务（com.oplus.cosa）接管修复 Mock */
+        if (c.indexOf('cosa_fix.sh') >= 0) {
+            var cf = MOCK.cosaFix;
+            if (!MOCK.cosaFixCalls) MOCK.cosaFixCalls = { status: 0, enable: 0, disable: 0 };
+            if (c.indexOf(' status') >= 0) {
+                MOCK.cosaFixCalls.status += 1;
+                var cfLines = [
+                    'enabled=' + (cf.enabled ? '1' : '0'),
+                    'conf=/data/adb/murong_touch/cosa_fix.conf',
+                    '---',
+                    'enabled=' + (cf.enabled ? '1' : '0'),
+                    'updated_at=1793000000',
+                    'model=' + cf.model,
+                    'platform=' + cf.platform,
+                    'supported=' + cf.supported,
+                    'db=' + cf.db,
+                    'backup=' + cf.backup,
+                    'sqlite=' + cf.sqlite,
+                    'injected=' + cf.injected
+                ];
+                if (cf.reason) cfLines.push('reason=' + cf.reason);
+                return cfLines.join('\n');
+            }
+            if (c.indexOf(' enable') >= 0) {
+                MOCK.cosaFixCalls.enable += 1;
+                if (cf.supported !== 'yes') return 'error: 当前机型无应用增强服务兼容配置（supported=' + cf.supported + '）';
+                if (cf.db !== 'yes') return 'error: 应用增强服务数据库不存在';
+                cf.enabled = true;
+                cf.injected = '6';
+                cf.backup = 'yes';
+                return 'success:true\nok:6';
+            }
+            if (c.indexOf(' disable') >= 0) {
+                MOCK.cosaFixCalls.disable += 1;
+                cf.enabled = false;
+                cf.injected = '0';
+                return 'success:true\nok';
+            }
+        }
         /* v5.24：VSync 状态（settings get global hwui.disable_vsync） */
         if (c.indexOf('hwui.disable_vsync') >= 0 && c.indexOf('settings get') >= 0) return MOCK.vsyncDisable;
         if (c.indexOf('apply_touch_tuning.sh') >= 0) {
@@ -666,7 +740,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.25.0 后端探测报告',
+            return ['touch_rate_daemon v5.26.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -2318,7 +2392,7 @@ function buildTouchConfText(values, order) {
         if (known.indexOf(key) < 0 && extra.indexOf(key) < 0) extra.push(key);
     });
     var lines = [
-        '# 慕容触控采样率 v5.25 触控参数（KEY=VALUE，UTF-8；# 注释）',
+        '# 慕容触控采样率 v5.26 触控参数（KEY=VALUE，UTF-8；# 注释）',
         '# 由 WebUI「触控」页按卡片合并写入；删掉某项即不再由模块管理该项',
         '# 键：touch_slop scroll_friction fling_velocity touch_priority vtouch_switch multi_press_timeout long_press_timeout',
         '#     vsync_enabled cpufreq_limit_disabled cpufreq_bounce_disabled enable_adpf enable_hint_manager',
@@ -2479,6 +2553,7 @@ async function loadTouchTab(options) {
         st.confOrder = conf.order;
         st.loaded = true;
         await loadVsyncState({ silent: true });
+        await loadCosaFixStatus({ silent: true });
         return true;
     } catch (e) {
         st.error = e && e.message ? e.message : String(e);
@@ -2553,6 +2628,165 @@ async function setVsync(enabled) {
     return result.ok;
 }
 
+/* ---------- v5.26 应用增强服务（com.oplus.cosa）接管修复 ----------
+ * 部分 ColorOS 的「应用增强服务」会覆盖模块写入的触控采样率；
+ * 开启后由 cosa_fix.sh 向其游戏数据库注入最高采样率配置，让它不再压制；
+ * 首次注入自动备份数据库，可一键恢复。默认关闭（不开启不写任何东西）。
+ * ------------------------------------------------------------------ */
+function parseCosaFixStatus(text) {
+    var map = parseKeyValueLines(text);
+    var supportedRaw = str(map.supported).trim().toLowerCase();
+    var supported = supportedRaw === 'yes' ? true : (supportedRaw === 'no' ? false : null);
+    var hasStatus = Object.keys(map).length > 0;
+    if (!hasStatus) {
+        return {
+            enabled: false, supported: false, model: '', platform: '', db: '', backup: '',
+            sqlite: '', injected: '0', reason: 'status_unavailable'
+        };
+    }
+    return {
+        enabled: str(map.enabled) === '1' || str(map.enabled) === 'true',
+        supported: supported,
+        model: str(map.model),
+        platform: str(map.platform),
+        db: str(map.db),
+        backup: str(map.backup),
+        sqlite: str(map.sqlite),
+        injected: str(map.injected || '0'),
+        reason: str(map.reason)
+    };
+}
+
+function cosaFixErrorText(text) {
+    var value = String(text == null ? '' : text).trim();
+    if (!value) return '命令未返回结果（脚本缺失或执行失败）';
+    var lines = value.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.indexOf('error:') === 0) return line.replace(/^error:\s*/, '');
+    }
+    if (value.indexOf('success:true') >= 0) return '';
+    return value.length > 160 ? value.slice(0, 160) + '…' : value;
+}
+
+async function loadCosaFixStatus(options) {
+    options = options || {};
+    var fix = APP.touch.cosaFix;
+    if (fix.loading) return false;
+    fix.loading = true;
+    try {
+        var out = await runCommand(CMD.cosaFixStatus(), { timeout: 30000 });
+        var parsed = parseCosaFixStatus(out);
+        fix.enabled = parsed.enabled;
+        fix.supported = parsed.supported;
+        fix.model = parsed.model;
+        fix.platform = parsed.platform;
+        fix.db = parsed.db;
+        fix.backup = parsed.backup;
+        fix.sqlite = parsed.sqlite;
+        fix.injected = parsed.injected;
+        fix.reason = parsed.reason;
+        fix.error = '';
+        fix.loaded = true;
+    } catch (e) {
+        fix.error = e && e.message ? e.message : String(e);
+        fix.loaded = true;
+        if (fix.supported === null || fix.supported === undefined) fix.supported = false;
+    } finally {
+        fix.loading = false;
+        renderCosaFixCard();
+    }
+    return fix;
+}
+
+function renderCosaFixCard() {
+    var fix = (APP.touch && APP.touch.cosaFix) || {};
+    var stateText;
+    if (fix.loading) stateText = '读取中…';
+    else if (fix.supported !== true) stateText = '当前机型暂无配置';
+    else stateText = fix.enabled ? '已开启' : '未开启';
+    setText('cosa-fix-state', stateText);
+    var toggle = $('cosa-fix-toggle');
+    if (toggle) {
+        toggle.checked = fix.enabled === true;
+        toggle.disabled = fix.loading || fix.saving || fix.supported !== true;
+    }
+    var model = fix.model ? (fix.model + (fix.platform ? ' · ' + fix.platform : '')) : '—';
+    setText('cosa-fix-model', model);
+    setText('cosa-fix-db', fix.db === 'yes' ? '正常' : (fix.db === 'no' ? '不存在' : '—'));
+    var injected = Number(fix.injected || 0);
+    setText('cosa-fix-injected', fix.injected === '' || fix.injected === undefined || fix.injected === null
+        ? '—' : (injected > 0 ? '已注入 ' + injected + ' 个包名' : '未注入'));
+    setText('cosa-fix-backup', fix.backup === 'yes' ? '已有备份' : (fix.backup === 'no' ? '无备份（开启时自动创建）' : '—'));
+    var reason = $('cosa-fix-reason');
+    if (reason) {
+        var reasonText = '';
+        if (fix.error) reasonText = '状态读取失败：' + fix.error;
+        else if (fix.supported !== true) {
+            reasonText = '当前机型暂无应用增强服务兼容配置' +
+                (fix.reason && fix.reason !== 'status_unavailable' ? '（' + fix.reason + '）' : '') + '，开关不可用。';
+        }
+        reason.hidden = !reasonText;
+        reason.textContent = reasonText;
+    }
+    var reinject = $('btn-cosa-fix-reinject');
+    if (reinject) reinject.disabled = fix.loading || fix.saving || fix.supported !== true;
+    var restore = $('btn-cosa-fix-restore');
+    if (restore) restore.disabled = fix.loading || fix.saving || (!fix.enabled && fix.backup !== 'yes');
+    var result = $('cosa-fix-result');
+    if (result) {
+        result.hidden = !fix.lastMessage;
+        result.textContent = fix.lastMessage || '';
+        result.className = 'inline-result' + (fix.lastError ? ' is-err' : '');
+    }
+}
+
+async function setCosaFixEnabled(enabled) {
+    var fix = APP.touch.cosaFix;
+    if (fix.saving) return false;
+    if (fix.supported !== true) {
+        toast('当前机型暂无应用增强服务兼容配置，开关不可用', 'warn', 3600);
+        renderCosaFixCard();
+        return false;
+    }
+    fix.saving = true;
+    fix.lastError = false;
+    renderCosaFixCard();
+    try {
+        var out = await runCommand(enabled ? CMD.cosaFixEnable() : CMD.cosaFixDisable(), { timeout: 180000 });
+        var text = String(out == null ? '' : out).trim();
+        if (text.indexOf('success:true') < 0) throw new Error(cosaFixErrorText(text));
+        fix.lastMessage = enabled ? '已开启接管修复并注入采样率配置' : '已关闭接管修复并恢复数据库';
+        toast(enabled ? '已开启接管修复' : '已关闭接管修复，已恢复数据库', 'ok', 3200);
+        await loadCosaFixStatus();
+        return true;
+    } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        fix.lastMessage = '操作失败：' + message;
+        fix.lastError = true;
+        toast('操作失败：' + message, 'err', 4600);
+        return false;
+    } finally {
+        fix.saving = false;
+        renderCosaFixCard();
+    }
+}
+
+async function reinjectCosaFix() {
+    return setCosaFixEnabled(true);
+}
+
+async function restoreCosaFixDatabase() {
+    var ok = await confirmDialog({
+        title: '恢复应用增强服务数据库？',
+        message: '将关闭接管修复并还原首次注入前的数据库备份；如果没有备份，会清除应用增强服务数据，可能需要重启手机。',
+        confirmText: '恢复默认',
+        danger: true
+    });
+    if (!ok) return false;
+    return setCosaFixEnabled(false);
+}
+
 /* ---------- 触控页渲染 ---------- */
 function renderTouchPage(options) {
     options = options || {};
@@ -2564,6 +2798,7 @@ function renderTouchPage(options) {
     syncTouchSliders(TOUCH_PHASE_KEYS, options);
     renderGestureChoice(options);
     renderPerfCard();
+    renderCosaFixCard();
 }
 
 function renderTouchConfSummary() {
@@ -2835,6 +3070,13 @@ function bindTouchPageControls() {
     });
     var vsync = $('vsync-toggle');
     if (vsync) vsync.addEventListener('change', function () { setVsync(vsync.checked); });
+    /* v5.26：应用增强服务接管修复 */
+    var cosaToggle = $('cosa-fix-toggle');
+    if (cosaToggle) cosaToggle.addEventListener('change', function () { setCosaFixEnabled(cosaToggle.checked); });
+    var cosaReinject = $('btn-cosa-fix-reinject');
+    if (cosaReinject) cosaReinject.addEventListener('click', function () { withBusy(cosaReinject, '注入中…', reinjectCosaFix); });
+    var cosaRestore = $('btn-cosa-fix-restore');
+    if (cosaRestore) cosaRestore.addEventListener('click', function () { withBusy(cosaRestore, '恢复中…', restoreCosaFixDatabase); });
     var goto = $('btn-goto-touch');
     if (goto) goto.addEventListener('click', function () { switchTab('touch', true); });
 }
@@ -4704,7 +4946,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.25.0';
+var ABOUT_VERSION = 'v5.26.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {
@@ -5383,6 +5625,7 @@ function switchTab(name, updateHash) {
         } else {
             renderTouchPage({ keepForm: true });
             loadVsyncState();
+            loadCosaFixStatus();
         }
     }
     else if (name === 'logs') loadRawLog();
@@ -5858,11 +6101,23 @@ if (typeof window !== 'undefined') {
         restorePerfCard: restorePerfCard,
         restorePhaseCard: restorePhaseCard,
         syncTouchSliders: syncTouchSliders,
+        parseCosaFixStatus: parseCosaFixStatus,
+        loadCosaFixStatus: loadCosaFixStatus,
+        renderCosaFixCard: renderCosaFixCard,
+        setCosaFixEnabled: setCosaFixEnabled,
+        reinjectCosaFix: reinjectCosaFix,
+        restoreCosaFixDatabase: restoreCosaFixDatabase,
+        getCosaFixState: function () { return JSON.parse(JSON.stringify(APP.touch.cosaFix || {})); },
         getTouchState: function () { return JSON.parse(JSON.stringify(APP.touch || {})); },
         resetTouchState: function () {
             APP.touch = {
                 loading: false, saving: false, loaded: false, error: '', lastMessage: '', conf: {}, confOrder: [],
-                vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' }
+                vsync: { loaded: false, loading: false, enabled: true, text: '已开启（系统默认）', source: 'default', raw: '' },
+                cosaFix: {
+                    loaded: false, loading: false, saving: false, enabled: false, supported: null,
+                    model: '', platform: '', db: '', backup: '', sqlite: '', injected: '0', reason: '', error: '',
+                    lastMessage: '', lastError: false
+                }
             };
             return APP.touch;
         },
@@ -5880,6 +6135,9 @@ if (typeof window !== 'undefined') {
         getMockTouchConfWrites: function () { return MOCK.touchConfWrites || 0; },
         getMockVsyncDisable: function () { return MOCK.vsyncDisable; },
         setMockVsyncDisable: function (value) { MOCK.vsyncDisable = String(value); return MOCK.vsyncDisable; },
+        getMockCosaFix: function () { return JSON.parse(JSON.stringify(MOCK.cosaFix)); },
+        setMockCosaFix: function (patch) { Object.assign(MOCK.cosaFix, patch || {}); return MOCK.cosaFix; },
+        getMockCosaFixCalls: function () { return JSON.parse(JSON.stringify(MOCK.cosaFixCalls || { status: 0, enable: 0, disable: 0 })); },
         TAB_NAMES: TAB_NAMES,
         TAB_META: TAB_META,
         resetMock: function () {
@@ -5894,6 +6152,18 @@ if (typeof window !== 'undefined') {
             MOCK.touchTuningApplied = '';
             MOCK.touchConfWrites = 0;
             MOCK.vsyncDisable = 'false';
+            MOCK.cosaFix = {
+                enabled: false,
+                model: 'RMX5200',
+                platform: 'SM8850',
+                supported: 'yes',
+                db: 'yes',
+                backup: 'no',
+                sqlite: 'yes',
+                injected: '0',
+                reason: ''
+            };
+            MOCK.cosaFixCalls = { status: 0, enable: 0, disable: 0 };
             MOCK.paid = null;
         }
     };

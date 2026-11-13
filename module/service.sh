@@ -190,5 +190,13 @@ if [ -x "$MODDIR/bin/update_status.sh" ] || [ -f "$MODDIR/bin/update_status.sh" 
     fi
 fi
 
+# 应用增强服务（com.oplus.cosa）接管修复：启用时开机后台重新注入
+if [ -f "$MODDIR/bin/cosa_fix.sh" ]; then
+    chmod 755 "$MODDIR/bin/cosa_fix.sh" "$MODDIR/bin/cloud-rate.sh" "$MODDIR/bin/sqlite3" 2>/dev/null
+    if [ -f "/data/adb/murong_touch/cosa_fix.conf" ] && grep -q '^enabled=1' "/data/adb/murong_touch/cosa_fix.conf" 2>/dev/null; then
+        ( sleep 15; sh "$MODDIR/bin/cosa_fix.sh" apply-boot ) >/dev/null 2>&1 &
+    fi
+fi
+
 log "===== service.sh 结束 ====="
 exit 0

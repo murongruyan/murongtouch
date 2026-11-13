@@ -773,4 +773,5 @@ case "$ACTION" in
 esac
 
 # 自动镜像：任何操作结束后把当前 auth/config 备份到持久目录（读操作也无害）
-[ "$ACTION" != "state_restore" ] && state_persist_backup
+if [ "$ACTION" != "state_restore" ]; then state_persist_backup; fi
+exit 0
