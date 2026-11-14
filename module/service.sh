@@ -177,6 +177,14 @@ if [ -x "$MODDIR/bin/api.sh" ]; then
     ) >/dev/null 2>&1 &
 fi
 
+# v5.27 清理旧版高功耗 CPU 调频选项（cpufreq_limit/bounce），恢复系统默认，避免待机功耗升高
+if [ -f "/data/adb/murong_touch/touch_tuning.conf" ] && grep -qE '^cpufreq_(limit|bounce)_disabled=' "/data/adb/murong_touch/touch_tuning.conf" 2>/dev/null; then
+    sed -i '/^cpufreq_limit_disabled=/d;/^cpufreq_bounce_disabled=/d' "/data/adb/murong_touch/touch_tuning.conf" 2>/dev/null
+    chmod 0644 /proc/game_opt/disable_cpufreq_limit 2>/dev/null && echo 0 > /proc/game_opt/disable_cpufreq_limit 2>/dev/null && chmod 0444 /proc/game_opt/disable_cpufreq_limit 2>/dev/null
+    chmod 0644 /sys/module/cpufreq_bouncing/parameters/enable 2>/dev/null && echo 1 > /sys/module/cpufreq_bouncing/parameters/enable 2>/dev/null && chmod 0444 /sys/module/cpufreq_bouncing/parameters/enable 2>/dev/null
+    log "已清理旧版高功耗 CPU 调频选项并恢复默认"
+fi
+
 # 触控手感优化（可选；配置文件不存在则不修改任何设置）
 if [ -f "$MODDIR/bin/apply_touch_tuning.sh" ] && [ -f "${DATA_DIR:-/data/adb/murong_touch}/touch_tuning.conf" -o -f "$MODDIR/config/touch_tuning.conf" ]; then
     sh "$MODDIR/bin/apply_touch_tuning.sh" apply >/dev/null 2>&1 &

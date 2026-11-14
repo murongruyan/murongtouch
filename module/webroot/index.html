@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
     <meta name="format-detection" content="telephone=no">
-    <title>慕容触控采样率 v5.26</title>
+    <title>慕容触控采样率 v5.27</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -42,7 +42,7 @@
                     <span>运行状态</span>
                     <b id="daemon-text">检测中</b>
                 </div>
-                <div class="status-line"><span>模块版本</span><b id="module-version">v5.26.0</b></div>
+                <div class="status-line"><span>模块版本</span><b id="module-version">v5.27.0</b></div>
                 <div class="status-line"><span>授权状态</span><b id="hero-license">免授权</b></div>
                 <div class="status-line"><span>后端通道</span><b id="header-backend">—</b></div>
                 <div class="status-line"><span>生效来源</span><b id="effective-source">—</b></div>
@@ -314,17 +314,7 @@
 
             <div class="section-label">性能释放</div>
             <div class="card" id="touch-perf-card">
-                <p class="hint hint-warn">性能参数更激进，可能增加发热与耗电；开关状态会写入配置（0/1），部分机型节点不存在时无效果。</p>
-                <div class="status-line sync-toggle-line">
-                    <span>解除 CPU 频率限制</span>
-                    <label class="sync-switch"><input type="checkbox" id="touch-perf-cpufreq-limit" aria-label="cpufreq_limit_disabled"><span class="sync-switch-slider" aria-hidden="true"></span></label>
-                </div>
-                <p class="hint">解除系统游戏优化框架（game_opt）对 CPU 频率的封顶，重载时可冲到最高频。</p>
-                <div class="status-line sync-toggle-line">
-                    <span>禁用 CPU 频率弹跳</span>
-                    <label class="sync-switch"><input type="checkbox" id="touch-perf-cpufreq-bounce" aria-label="cpufreq_bounce_disabled"><span class="sync-switch-slider" aria-hidden="true"></span></label>
-                </div>
-                <p class="hint">关闭调度器高频弹跳机制，避免重载时频率被主动压低。</p>
+                <p class="hint hint-warn">仅保留低风险调度项；CPU 调频项已移除，避免高功耗。开关状态会写入配置（0/1），部分机型节点不存在时无效果。</p>
                 <div class="status-line sync-toggle-line">
                     <span>ADPF CPU Hint</span>
                     <label class="sync-switch"><input type="checkbox" id="touch-perf-adpf" aria-label="enable_adpf"><span class="sync-switch-slider" aria-hidden="true"></span></label>
@@ -532,12 +522,12 @@
                     <span class="chevron">›</span>
                 </button>
             </div>
-            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.26 · 付费组件单独下载</p>
+            <p class="meta-line" id="paid-version-line">慕容触控采样率 v5.27 · 付费组件单独下载</p>
         </section>
     </main>
 
     <footer class="app-footer">
-        <span>慕容触控采样率 v5.26</span>
+        <span>慕容触控采样率 v5.27</span>
         <span class="dot-sep" aria-hidden="true">·</span>
         <span>本地离线 WebUI</span>
         <span class="dot-sep" aria-hidden="true">·</span>

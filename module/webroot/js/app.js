@@ -1,9 +1,9 @@
 /* ============================================================
- * 慕容触控采样率 v5.26 · KernelSU WebUI
+ * 慕容触控采样率 v5.27 · KernelSU WebUI
  * 五页：主页 / 配置 / 触控 / 日志 / 用户；MIUIX + 调度式液态玻璃底栏。
  * UI 主参考 murongdiaodu-apk（慕容调度）；日志“一键收集+分享”、配置平铺参考显示模块。
  * v5.22：自动补装付费组件（api.sh auto_install_premium）+ 触控优化；
- * v5.23：新增「触控」页；v5.24：范围参数改 slider；v5.25：VSync null 显示 + 主页顺序；v5.26：应用增强服务（Cosa）接管修复卡片。
+ * v5.23：新增「触控」页；v5.24：范围参数改 slider；v5.25：VSync null 显示 + 主页顺序；v5.27：应用增强服务（Cosa）接管修复卡片。
  * 纯静态、离线、无 CDN；命令全部经 ksu.exec 执行；浏览器预览自动 Mock。
  * ============================================================ */
 'use strict';
@@ -12,7 +12,7 @@
  * 1. 常量
  * ============================================================ */
 var MOD = '/data/adb/modules/gt8pro_touch';
-var WEBUI_VERSION = '5.26.0';
+var WEBUI_VERSION = '5.27.0';
 var CONFIG_PATH = MOD + '/config/采样率.txt';
 var DAEMON_PID_PATH = MOD + '/config/daemon.pid';
 var DAEMON_LOG_PATH = MOD + '/config/daemon.log';
@@ -51,7 +51,7 @@ var PREMIUM_MIN_COMPONENT_VERSION = '5.0.0';
 var TOUCH_TUNING_DIR = '/data/adb/murong_touch';
 var TOUCH_TUNING_PATH = TOUCH_TUNING_DIR + '/touch_tuning.conf';
 var TOUCH_TUNING_APPLY_SCRIPT = MOD + '/bin/apply_touch_tuning.sh';
-/* v5.26：应用增强服务（com.oplus.cosa）接管修复 */
+/* v5.27：应用增强服务（com.oplus.cosa）接管修复 */
 var COSA_FIX_SCRIPT = MOD + '/bin/cosa_fix.sh';
 
 var ANY_HZ = [120, 180, 240, 288, 360, 400];
@@ -101,7 +101,7 @@ var APP = {
     diagPath: '',
     license: { deviceId: '', activated: false, plan: '', detail: '', activatedAt: '', supported: true },
     licenseLoading: false,
-    moduleVersion: 'v5.26.0',
+    moduleVersion: 'v5.27.0',
     appearance: null,
     theme: 'auto',
     paid: {
@@ -410,7 +410,7 @@ var CMD = {
     restoreTouchTuning: function () { return 'sh "' + TOUCH_TUNING_APPLY_SCRIPT + '" restore; echo "__RESTORE_DONE__:$?"'; },
     /* VSync 状态（settings get global hwui.disable_vsync） */
     vsyncGet: function () { return 'settings get global hwui.disable_vsync 2>/dev/null'; },
-    /* v5.26：应用增强服务（com.oplus.cosa）接管修复 */
+    /* v5.27：应用增强服务（com.oplus.cosa）接管修复 */
     cosaFixStatus: function () { return 'sh "' + COSA_FIX_SCRIPT + '" status 2>&1'; },
     cosaFixEnable: function () { return 'sh "' + COSA_FIX_SCRIPT + '" enable 2>&1'; },
     cosaFixDisable: function () { return 'sh "' + COSA_FIX_SCRIPT + '" disable 2>&1'; },
@@ -535,7 +535,7 @@ var MOCK_INITIAL_CONFIG = [
 ].join('\n') + '\n';
 
 var MOCK_INITIAL_LOGS = [
-    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.26.0 守护进程启动 =====',
+    '10-23 08:31:02 [INFO] ===== 慕容触控采样率 v5.27.0 守护进程启动 =====',
     '10-23 08:31:02 [INFO] 模块目录: ' + MOD,
     '10-23 08:31:02 [INFO] 机型: RMX5200 (arm64-v8a) / Android 37 / ROM V17.0.0',
     '10-23 08:31:02 [INFO] 加载配置: ' + CONFIG_PATH + '（全局 0，规则 5 条）',
@@ -609,7 +609,7 @@ function mockState() {
     var m = mockTargetHz();
     var current = MOCK.manualHz > 0 ? MOCK.manualHz : (m.target > 0 ? m.target : MOCK.originalHz);
     return {
-        version: '5.26.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
+        version: '5.27.0', model: 'RMX5200', platform: 'arm64-v8a', sdk: 37, oplusrom: 'V17.0.0',
         daemon_running: !MOCK.removed, pid: MOCK.removed ? 0 : MOCK.pid,
         foreground: MOCK.foreground, foreground_source: 'binder',
         matched: m.matched, rule_rate: m.ruleRate, global_rate: m.global, target_hz: m.target, current_hz: current,
@@ -657,7 +657,7 @@ function mockExec(cmd) {
             if (c.indexOf('rm -f') >= 0) { MOCK.touchTuningText = ''; return '__DELETE_OK__'; }
             if (c.indexOf('cat ') >= 0) return MOCK.touchTuningText;
         }
-        /* v5.26：应用增强服务（com.oplus.cosa）接管修复 Mock */
+        /* v5.27：应用增强服务（com.oplus.cosa）接管修复 Mock */
         if (c.indexOf('cosa_fix.sh') >= 0) {
             var cf = MOCK.cosaFix;
             if (!MOCK.cosaFixCalls) MOCK.cosaFixCalls = { status: 0, enable: 0, disable: 0 };
@@ -740,7 +740,7 @@ function mockExec(cmd) {
         }
         if (c.indexOf('--json') >= 0) return JSON.stringify(mockState());
         if (c.indexOf('--probe') >= 0) {
-            return ['touch_rate_daemon v5.26.0 后端探测报告',
+            return ['touch_rate_daemon v5.27.0 后端探测报告',
                 'model: RMX5200  sdk: 37  oplusrom: V17.0.0  platform: arm64-v8a',
                 'hbp:         YES  touchDaemon pid=7255 fd=6 复制成功',
                 'proc_rate:   NO   节点不存在', 'white_list:  NO   节点不存在',
@@ -2310,7 +2310,7 @@ var TOUCH_CONF_KEY_ORDER = [
     'touch_slop', 'scroll_friction', 'fling_velocity',
     'touch_priority', 'vtouch_switch', 'multi_press_timeout', 'long_press_timeout',
     'vsync_enabled',
-    'cpufreq_limit_disabled', 'cpufreq_bounce_disabled', 'enable_adpf', 'enable_hint_manager',
+    'enable_adpf', 'enable_hint_manager',
     'early_phase_offset_ns', 'early_app_phase_offset_ns', 'early_gl_phase_offset_ns', 'early_gl_app_phase_offset_ns',
     'high_fps_early_phase_offset_ns', 'high_fps_early_gl_phase_offset_ns', 'high_fps_late_app_phase_offset_ns',
     'phase_offset_threshold_for_next_vsync_ns'
@@ -2322,10 +2322,8 @@ var TOUCH_PHASE_KEYS = [
 ];
 var TOUCH_DEBOUNCE_KEYS = ['touch_slop', 'scroll_friction', 'fling_velocity'];
 var TOUCH_GESTURE_RANGE_KEYS = ['touch_priority', 'multi_press_timeout', 'long_press_timeout'];
-var TOUCH_PERF_KEYS = ['cpufreq_limit_disabled', 'cpufreq_bounce_disabled', 'enable_adpf', 'enable_hint_manager'];
+var TOUCH_PERF_KEYS = ['enable_adpf', 'enable_hint_manager'];
 var TOUCH_PERF_TOGGLE_IDS = {
-    cpufreq_limit_disabled: 'touch-perf-cpufreq-limit',
-    cpufreq_bounce_disabled: 'touch-perf-cpufreq-bounce',
     enable_adpf: 'touch-perf-adpf',
     enable_hint_manager: 'touch-perf-hint'
 };
@@ -2392,10 +2390,10 @@ function buildTouchConfText(values, order) {
         if (known.indexOf(key) < 0 && extra.indexOf(key) < 0) extra.push(key);
     });
     var lines = [
-        '# 慕容触控采样率 v5.26 触控参数（KEY=VALUE，UTF-8；# 注释）',
+        '# 慕容触控采样率 v5.27 触控参数（KEY=VALUE，UTF-8；# 注释）',
         '# 由 WebUI「触控」页按卡片合并写入；删掉某项即不再由模块管理该项',
         '# 键：touch_slop scroll_friction fling_velocity touch_priority vtouch_switch multi_press_timeout long_press_timeout',
-        '#     vsync_enabled cpufreq_limit_disabled cpufreq_bounce_disabled enable_adpf enable_hint_manager',
+        '#     vsync_enabled enable_adpf enable_hint_manager',
         '#     相位偏移：early_phase_offset_ns 等 8 项（见 apply_touch_tuning.sh）'
     ];
     var count = 0;
@@ -2419,7 +2417,7 @@ function mergeTouchConfText(existingText, updates, removals) {
     });
     Object.keys(updates || {}).forEach(function (key) {
         var value = str(updates[key]).trim();
-        if (!value) return;
+        if (!value || value === 'null' || value === 'NULL' || value === 'undefined') return;
         if (!Object.prototype.hasOwnProperty.call(values, key)) order.push(key);
         values[key] = value;
     });
@@ -2628,7 +2626,7 @@ async function setVsync(enabled) {
     return result.ok;
 }
 
-/* ---------- v5.26 应用增强服务（com.oplus.cosa）接管修复 ----------
+/* ---------- v5.27 应用增强服务（com.oplus.cosa）接管修复 ----------
  * 部分 ColorOS 的「应用增强服务」会覆盖模块写入的触控采样率；
  * 开启后由 cosa_fix.sh 向其游戏数据库注入最高采样率配置，让它不再压制；
  * 首次注入自动备份数据库，可一键恢复。默认关闭（不开启不写任何东西）。
@@ -3070,7 +3068,7 @@ function bindTouchPageControls() {
     });
     var vsync = $('vsync-toggle');
     if (vsync) vsync.addEventListener('change', function () { setVsync(vsync.checked); });
-    /* v5.26：应用增强服务接管修复 */
+    /* v5.27：应用增强服务接管修复 */
     var cosaToggle = $('cosa-fix-toggle');
     if (cosaToggle) cosaToggle.addEventListener('change', function () { setCosaFixEnabled(cosaToggle.checked); });
     var cosaReinject = $('btn-cosa-fix-reinject');
@@ -4946,7 +4944,7 @@ var ABOUT_UPDATE_CACHE_KEY = 'gt8pro_about_update_v1';
 var ABOUT_UPDATE_CACHE_TTL = 10 * 60 * 1000;
 var ABOUT_RELEASES_URL = 'https://github.com/murongruyan/murongtouch/releases';
 var ABOUT_AUTHOR = '慕容茹艳（酷安慕容雪绒）';
-var ABOUT_VERSION = 'v5.26.0';
+var ABOUT_VERSION = 'v5.27.0';
 
 function openExternalUrl(url) {
     return new Promise(function (resolve) {

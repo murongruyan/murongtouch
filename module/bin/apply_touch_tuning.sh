@@ -63,6 +63,8 @@ apply_conf() {
         key=$(printf '%s' "$key" | tr -d ' \t\r')
         value=$(printf '%s' "$value" | tr -d ' \t\r')
         case "$key" in ''|'#'*) continue ;; esac
+        # v5.27：空值/null 不写入（旧 WebUI 合并 bug 会写 null）
+        case "$value" in ''|null|NULL|undefined) log_msg "跳过空值 $key"; continue ;; esac
         case "$key" in
             touch_slop)            [ -n "$value" ] && setprop view.touch_slop "$value" && log_msg "touch_slop=$value" ;;
             scroll_friction)       [ -n "$value" ] && setprop view.scroll_friction "$value" && log_msg "scroll_friction=$value" ;;
@@ -84,8 +86,9 @@ apply_conf() {
                 [ -n "$value" ] && setprop debug.sf.enable_adpf_cpu_hint "$value" && log_msg "enable_adpf=$value" ;;
             enable_hint_manager)
                 [ -n "$value" ] && setprop debug.hwui.use_hint_manager "$value" && log_msg "enable_hint_manager=$value" ;;
-            cpufreq_limit_disabled)  cpufreq_limit "$value" ;;
-            cpufreq_bounce_disabled) cpufreq_bounce "$value" ;;
+            cpufreq_limit_disabled|cpufreq_bounce_disabled)
+                # v5.27：高功耗 CPU 调频选项已移除，旧配置不再应用（restore 会恢复默认）
+                log_msg "忽略旧高功耗选项 $key=$value" ;;
             early_phase_offset_ns|early_app_phase_offset_ns|early_gl_phase_offset_ns|early_gl_app_phase_offset_ns|high_fps_early_phase_offset_ns|high_fps_early_gl_phase_offset_ns|high_fps_late_app_phase_offset_ns|phase_offset_threshold_for_next_vsync_ns)
                 [ -n "$value" ] && setprop "debug.sf.$key" "$value" && log_msg "debug.sf.$key=$value" ;;
             *)
