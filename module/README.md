@@ -84,6 +84,10 @@ WebUI → 日志 → **一键收集诊断信息**：打包守护进程日志、�
 - v3.x：C 守护进程、全局+每应用采样率、多后端自动探测。
 - v1.x：初版（已废弃）。
 
+## SurfaceFlinger 相位兼容
+
+WorkDuration 模式下不再应用旧式 `debug.sf.*phase_offset_ns` 参数，并在安装、开机和应用触控配置时清理旧版本遗留的冲突值。系统的 `debug.sf.use_phase_offsets_as_durations` 开关、空值和 `-1` 哨兵值保持不变；`phase_offset_threshold_for_next_vsync_ns` 不属于这组拒绝项。旧系统显式使用 legacy 模式时继续沿用原有相位配置。
+
 ---
 
 © 慕容茹艳（酷安慕容雪绒）。本模块为闭源软件，禁止二次分发、反编译、修改后发布。

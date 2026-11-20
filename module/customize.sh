@@ -31,6 +31,15 @@ for f in webroot/index.html webroot/css/style.css webroot/js/app.js module.prop;
 done
 logi "文件权限已修复"
 
+# 升级时即清理旧版本遗留的 SF 冲突值，不重启显示服务，也不修改 duration 模式开关。
+if [ -f "$MODPATH/common.sh" ]; then
+    if ( . "$MODPATH/common.sh"; sf_clear_conflicting_phase_offsets "$LOG" ); then
+        logi "SurfaceFlinger 相位兼容检查完成"
+    else
+        logi "警告：部分旧相位属性清理失败，请查看安装日志"
+    fi
+fi
+
 # 2) 模块更新会重置模块目录：从持久化目录恢复登录 token/租约/用户配置
 if [ -f "$MODPATH/bin/api.sh" ]; then
     if sh "$MODPATH/bin/api.sh" state_restore >/dev/null 2>&1; then

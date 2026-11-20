@@ -47,11 +47,95 @@ log_line() {
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$2" >> "$1" 2>/dev/null
 }
 
+# WorkDuration 模式拒绝这些旧相位属性的非 -1 值，SF 下次启动会直接 abort。
+# threshold_for_next_vsync_ns 不在拒绝清单；模式开关本身也绝不能被清理。
+SF_LEGACY_PHASE_PROPS='
+debug.sf.early_phase_offset_ns
+debug.sf.early_gl_phase_offset_ns
+debug.sf.early_app_phase_offset_ns
+debug.sf.early_gl_app_phase_offset_ns
+debug.sf.high_fps_late_app_phase_offset_ns
+debug.sf.high_fps_late_sf_phase_offset_ns
+debug.sf.high_fps_early_phase_offset_ns
+debug.sf.high_fps_early_gl_phase_offset_ns
+debug.sf.high_fps_early_app_phase_offset_ns
+debug.sf.high_fps_early_gl_app_phase_offset_ns
+'
+
+sf_uses_duration_mode() {
+    local mode sdk
+    mode=$(getprop debug.sf.use_phase_offsets_as_durations 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    case "$mode" in
+        1|true|y|yes|on) return 0 ;;
+        0|false|n|no|off) return 1 ;;
+    esac
+    # Android 17+ 未显式声明模式时保守禁用旧偏移；旧系统保留原行为。
+    sdk=$(getprop ro.build.version.sdk 2>/dev/null)
+    case "$sdk" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$sdk" -ge 37 ]
+}
+
+sf_is_legacy_phase_prop() {
+    local candidate
+    for candidate in $SF_LEGACY_PHASE_PROPS; do
+        [ "$candidate" != "$1" ] || return 0
+    done
+    return 1
+}
+
+sf_clear_conflicting_phase_prop() {
+    local prop="$1" logfile="$2" current
+    current=$(getprop "$prop" 2>/dev/null)
+    case "$current" in ''|-1) return 0 ;; esac
+    if { command -v resetprop >/dev/null 2>&1 && resetprop --delete "$prop" >/dev/null 2>&1; } ||
+        setprop "$prop" "" >/dev/null 2>&1; then
+        log_line "$logfile" "[OK]   WorkDuration: cleared incompatible $prop=$current"
+        return 0
+    fi
+    log_line "$logfile" "[FAIL] WorkDuration: could not clear $prop=$current"
+    return 1
+}
+
+sf_clear_conflicting_phase_offsets() {
+    local logfile="$1" prop rc=0
+    sf_uses_duration_mode || return 0
+    for prop in $SF_LEGACY_PHASE_PROPS; do
+        sf_clear_conflicting_phase_prop "$prop" "$logfile" || rc=1
+    done
+    return "$rc"
+}
+
+# 默认清单和 WebUI 自定义配置共用此入口，避免任一路径重新写回冲突值。
+sf_apply_tweak_prop() {
+    local prop="$1" value="$2" logfile="$3"
+    if [ "$prop" = debug.sf.use_phase_offsets_as_durations ]; then
+        log_line "$logfile" "[SKIP] preserve system WorkDuration mode switch"
+        return 0
+    fi
+    if sf_is_legacy_phase_prop "$prop" && sf_uses_duration_mode; then
+        case "$value" in
+            ''|-1) ;;
+            *)
+                log_line "$logfile" "[SKIP] WorkDuration rejects legacy $prop=$value"
+                sf_clear_conflicting_phase_prop "$prop" "$logfile"
+                return $?
+                ;;
+        esac
+    fi
+    if setprop "$prop" "$value" >/dev/null 2>&1; then
+        log_line "$logfile" "[OK]   setprop $prop $value"
+        return 0
+    fi
+    log_line "$logfile" "[FAIL] setprop $prop $value"
+    return 1
+}
+
 # --------------------------- 设置项：设置 / 还原 ------------------------------
 # tweaks_apply <日志文件>：按 SETTINGS_LIST、PROPS_LIST 逐项设置。
 # 单项失败不中断（尽量把能设的都设置上），任意一项失败返回 1。
 tweaks_apply() {
     local logfile="$1" rc=0 ns key val prop
+    sf_clear_conflicting_phase_offsets "$logfile" || rc=1
     while IFS='|' read -r ns key val; do
         case "$ns" in
             ''|'#'*) continue ;;
@@ -70,12 +154,7 @@ EOF
         case "$prop" in
             ''|'#'*) continue ;;
         esac
-        if setprop "$prop" "$val" >/dev/null 2>&1; then
-            log_line "$logfile" "[OK]   setprop $prop $val"
-        else
-            log_line "$logfile" "[FAIL] setprop $prop $val"
-            rc=1
-        fi
+        sf_apply_tweak_prop "$prop" "$val" "$logfile" || rc=1
     done <<EOF
 $PROPS_LIST
 EOF

@@ -17,6 +17,13 @@ CONF="${STATE_DIR}/touch_tuning.conf"
 [ -f "$CONF" ] || CONF="$MOD/config/touch_tuning.conf"
 LOG="$MOD/config/daemon.log"
 
+# 与开机默认设置共用 SF 兼容保护；缺少公共库时不执行未经保护的属性写入。
+if [ ! -f "$MOD/common.sh" ]; then
+    echo "touch_tuning: missing common.sh; refusing unguarded property writes" >&2
+    exit 1
+fi
+. "$MOD/common.sh"
+
 put_setting() {
     # settings 偶尔 system_server busy (Failed transaction)，重试 3 次
     NS="$1"; KEY="$2"; VAL="$3"
@@ -58,6 +65,7 @@ cpufreq_bounce() {
 }
 
 apply_conf() {
+    sf_clear_conflicting_phase_offsets "$LOG" || return 1
     [ -f "$CONF" ] || { log_msg "无配置文件，不修改"; return 0; }
     while IFS='=' read -r key value; do
         key=$(printf '%s' "$key" | tr -d ' \t\r')
@@ -90,9 +98,9 @@ apply_conf() {
                 # v5.27：高功耗 CPU 调频选项已移除，旧配置不再应用（restore 会恢复默认）
                 log_msg "忽略旧高功耗选项 $key=$value" ;;
             early_phase_offset_ns|early_app_phase_offset_ns|early_gl_phase_offset_ns|early_gl_app_phase_offset_ns|high_fps_early_phase_offset_ns|high_fps_early_gl_phase_offset_ns|high_fps_late_app_phase_offset_ns|phase_offset_threshold_for_next_vsync_ns)
-                [ -n "$value" ] && setprop "debug.sf.$key" "$value" && log_msg "debug.sf.$key=$value" ;;
+                sf_apply_tweak_prop "debug.sf.$key" "$value" "$LOG" ;;
             *)
-                [ -n "$value" ] && setprop "debug.sf.$key" "$value" 2>/dev/null ;;
+                sf_apply_tweak_prop "debug.sf.$key" "$value" "$LOG" ;;
         esac
     done < "$CONF"
 }
@@ -107,8 +115,8 @@ restore_defaults() {
     settings delete global hwui.disable_vsync 2>/dev/null
     setprop debug.sf.enable_adpf_cpu_hint "" 2>/dev/null
     setprop debug.hwui.use_hint_manager "" 2>/dev/null
-    for k in early_phase_offset_ns early_app_phase_offset_ns early_gl_phase_offset_ns early_gl_app_phase_offset_ns high_fps_early_phase_offset_ns high_fps_early_gl_phase_offset_ns high_fps_late_app_phase_offset_ns phase_offset_threshold_for_next_vsync_ns; do
-        setprop "debug.sf.$k" "" 2>/dev/null
+    for p in $SF_LEGACY_PHASE_PROPS debug.sf.phase_offset_threshold_for_next_vsync_ns; do
+        setprop "$p" "" 2>/dev/null
     done
     cpufreq_limit 0
     cpufreq_bounce 0
@@ -121,6 +129,11 @@ restore_defaults() {
 
 status() {
     echo "conf=$CONF"
+    if sf_uses_duration_mode; then
+        echo "sf_phase_offsets_mode=duration (legacy offsets blocked)"
+    else
+        echo "sf_phase_offsets_mode=legacy"
+    fi
     [ -f "$CONF" ] && { echo "---"; cat "$CONF"; } || echo "not_enabled"
     echo "touch_slop=$(getprop view.touch_slop)"
     echo "scroll_friction=$(getprop view.scroll_friction)"

@@ -70,6 +70,7 @@ jobs:
           echo '  ok tools/package.sh'
           echo '== python 工具语法检查 =='
           python3 -m py_compile tools/update_metadata.py tools/release_notes.py
+          python3 tools/test_sf_duration_guard.py
           echo '== 必需文件 =='
           required=(
             module.prop service.sh action.sh uninstall.sh common.sh README.md
